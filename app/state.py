@@ -1,0 +1,81 @@
+"""Shared application state.
+
+Single in-memory source of truth for what every service currently believes
+about the console and the app's own runtime status. Services mutate their
+own slice of state through the methods below (never by poking attributes
+directly) so reads stay consistent across concurrent threads (OSC, MIDI,
+audio analysis, and Flask/WebSocket request handlers).
+"""
+from __future__ import annotations
+
+import threading
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass
+class ConnectionState:
+    connected: bool = False
+    host: str | None = None
+    port: int | None = None
+    console_name: str | None = None
+    model: str | None = None
+    firmware_version: str | None = None
+    last_error: str | None = None
+    last_seen_monotonic: float | None = None
+
+
+@dataclass
+class ChannelState:
+    """Placeholder for per-channel runtime state.
+
+    Populated starting in the MIDI/audio phases (slot assignment, AI
+    enabled, active notch count, bypass state). Not written to in this
+    phase -- defined now so the interface is stable for later modules.
+    """
+
+    index: int
+    card_out_slot: int | None = None
+    midi_slot: int | None = None
+    ai_enabled: bool = False
+    inserted: bool = True
+    active_notch_count: int = 0
+
+
+class AppState:
+    """Thread-safe container for cross-service runtime state."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.connection = ConnectionState()
+        # Set by app.osc.routing_snapshot once a snapshot has been captured.
+        self.current_snapshot: Any | None = None
+        self.snapshot_history: list[str] = []
+        self.channels: dict[int, ChannelState] = {i: ChannelState(index=i) for i in range(1, 33)}
+
+    def update_connection(self, **changes: Any) -> None:
+        with self._lock:
+            for key, value in changes.items():
+                if not hasattr(self.connection, key):
+                    raise AttributeError(f"ConnectionState has no field {key!r}")
+                setattr(self.connection, key, value)
+
+    def set_snapshot(self, snapshot: Any, saved_path: str | None = None) -> None:
+        with self._lock:
+            self.current_snapshot = snapshot
+            if saved_path is not None:
+                self.snapshot_history.append(saved_path)
+
+    def summary(self) -> dict:
+        """Plain-dict snapshot of current state, safe to serialize.
+
+        Used by DiagnosticsLogger for error context and by the debug
+        bundle export.
+        """
+        with self._lock:
+            return {
+                "connection": vars(self.connection).copy(),
+                "snapshot_history": list(self.snapshot_history),
+                "has_current_snapshot": self.current_snapshot is not None,
+                "channels": {i: vars(c).copy() for i, c in self.channels.items()},
+            }

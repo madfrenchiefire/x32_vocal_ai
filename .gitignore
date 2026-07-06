@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime output (per-session data, not source)
+logs/*.jsonl
+snapshots/*.json
+snapshots/*.zip
+!snapshots/.gitkeep
+!logs/.gitkeep
+
+*.onnx
+.DS_Store

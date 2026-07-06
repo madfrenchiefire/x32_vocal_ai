@@ -104,3 +104,89 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 - MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical.
 - `/meters` blob layout for the meters we need.
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
+- Exact `/config/routing/IN/*` and CARD-output block address strings. The
+  per-channel `/config/userrout/in/NN` and `/config/userrout/out/NN` addresses
+  (channels 1–32) are confirmed and implemented. The block-level routing
+  addresses are best-effort placeholders in `app/osc/addresses.py`
+  (`ROUTING_IN_BLOCKS_TODO_VERIFY`, `CARD_OUT_BLOCKS_TODO_VERIFY`,
+  `ROUTING_ADDRESSES_VERIFIED = False`) — read-only queries only, never used
+  to drive writes. Every `RoutingSnapshot` carries `routing_addresses_verified`
+  so callers can tell confirmed data from placeholder data. Confirm against
+  the Maillot doc or empirically, then flip `ROUTING_ADDRESSES_VERIFIED`.
+
+## Diagnostics event schema
+
+Every module (OSC, MIDI, audio, web) logs through
+`app.diagnostics.logger.DiagnosticsLogger` — **never `print()`**. This is not
+optional scaffolding; it's how a problem reported after a gig gets diagnosed
+without access to the running system.
+
+### On-disk format
+
+One JSON object per line (JSONL), written to `logs/<session_name>.jsonl`
+(append-only) and simultaneously kept in an in-memory ring buffer (default
+last 10,000 events, `AppConfig.ring_buffer_size`). Every event:
+
+```json
+{
+  "seq": 42,
+  "timestamp": "2026-07-06T16:21:58.831Z",
+  "monotonic": 1234.567,
+  "category": "osc_tx",
+  "correlation_id": "a1b2c3d4e5f6...",
+  "payload": { "...": "category-specific, see below" }
+}
+```
+
+- **`timestamp`** — ISO-8601 UTC, millisecond precision.
+- **`monotonic`** — `time.monotonic()` at log time; use this (not
+  `timestamp`) for measuring durations, since wall-clock time can jump.
+- **`category`** — one of: `osc_tx`, `osc_rx`, `midi_rx`, `user_action`,
+  `state_change`, `watchdog`, `error`.
+- **`correlation_id`** — ties a user action to everything it caused. See
+  below.
+- **`payload`** — raw data, exactly as sent/received; never a decoded
+  summary in place of the raw bytes.
+
+### Payload shape per category
+
+- `osc_tx` / `osc_rx`: `{"address": "/config/userrout/in/01", "args": [5]}`
+  — the exact OSC address and argument list, no interpretation.
+- `midi_rx`: `{"raw_bytes": [176, 1, 127], "parsed": {...}}` — raw MIDI
+  bytes plus whatever meaning was decoded from them.
+- `user_action`: `{"action": "export_debug_bundle", "details": {...}}` —
+  logged first, and its `correlation_id` is what gets attached everywhere
+  else. `DiagnosticsLogger.log_user_action(...)` returns the id to reuse.
+- `state_change`: `{"description": "...", "before": ..., "after": ...}`.
+- `watchdog`: `{"event": "connection_lost", "details": {...}}`.
+- `error`: `{"context": "...", "error_type": "...", "message": "...",
+  "traceback": "...", "state_summary": {...}}` — always includes the full
+  traceback and a snapshot of `AppState.summary()` at the moment of failure.
+
+### Correlation
+
+When a user action occurs (UI button, MIDI button, API call),
+`DiagnosticsLogger.log_user_action()` generates a `correlation_id` and logs
+the action under it. That id must then be threaded through to every
+OSC/MIDI message and state change the action triggers (pass
+`correlation_id=...` down the call chain), so the full cause-and-effect
+chain of one action — click → OSC writes → console replies → state change
+— can be filtered out of the log by that one id.
+
+### Debug bundle
+
+`app.diagnostics.export.build_debug_bundle()` (wired to `POST
+/api/diagnostics/export` and the "Export Debug Bundle" button) produces a
+zip containing `events.jsonl` (full on-disk history), `manifest.json`,
+`routing_state.json` (current + snapshot routing state), `config.json`,
+`connection_info.json` (`/xinfo`), `versions.json` (Python + library
+versions), and `summary.txt` (human-readable last 50 events). Design intent:
+this zip alone, pasted into a Claude Code session, should be enough to
+diagnose a problem with zero access to the running system.
+
+### Rule for future modules
+
+Every new module — MIDI service, audio engine, ML classifier, watchdog,
+web routes — logs through the shared `DiagnosticsLogger` instance passed
+into its constructor. Do not add a second logging mechanism and do not
+`print()`.

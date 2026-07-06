@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>X32 AI Feedback Suppression</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+    button { font-size: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
+    #status { margin-top: 1rem; color: #444; }
+  </style>
+</head>
+<body>
+  <h1>X32 AI Feedback Suppression</h1>
+  <p>
+    The routing / channel / control panels described in the project spec are
+    not implemented yet. This page currently only exposes diagnostics.
+  </p>
+
+  <button id="export-btn">Export Debug Bundle</button>
+  <div id="status"></div>
+
+  <script>
+    document.getElementById("export-btn").addEventListener("click", async () => {
+      const statusEl = document.getElementById("status");
+      statusEl.textContent = "Building debug bundle...";
+      try {
+        const response = await fetch("/api/diagnostics/export", { method: "POST" });
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : "debug_bundle.zip";
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        statusEl.textContent = `Downloaded ${filename}`;
+      } catch (err) {
+        statusEl.textContent = `Export failed: ${err}`;
+      }
+    });
+  </script>
+</body>
+</html>
