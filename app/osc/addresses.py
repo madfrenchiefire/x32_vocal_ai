@@ -59,27 +59,48 @@ def userrout_out_addr(channel: int) -> str:
 ALL_USERROUT_IN = [userrout_in_addr(ch) for ch in range(1, NUM_USERROUT_IN + 1)]
 ALL_USERROUT_OUT = [userrout_out_addr(ch) for ch in range(1, NUM_USERROUT_OUT + 1)]
 
-# --- userrout value semantics: HYPOTHESIS, not yet confirmed enough to decode --
+# --- userrout value semantics: confirmed for Local Analog, AES50-A, Card --
 #
-# Real-hardware test 2026-07-06: with channels 1-8's block source set to
-# "User In" (confirmed rtgin index 20, see ROUTING_ENUM_TABLES), and each of
-# those 8 channels individually assigned to Card 1..Card 8 (1:1) via the
-# console's User In screen, /config/userrout/in read back as:
-#   channel 1->8: 129, 130, 131, 132, 133, 134, 135, 136
-# i.e. value = 128 + card_channel_number. 128 == 32 (Local Analog 1-32) +
-# 48 (AES50-A 1-48) + 48 (AES50-B 1-48) -- the same source ordering already
-# confirmed in the block-routing enum tables above (AN, then A/AES50-A,
-# then B/AES50-B, then CARD). Working hypothesis: userrout is a flat,
-# 1-indexed source enumeration --
-#   1-32    Local Analog 1-32
-#   33-80   AES50-A 1-48
-#   81-128  AES50-B 1-48
-#   129-160 Card 1-32
-#   (unknown beyond 160 -- more sources likely follow, e.g. AES50 P16 sends)
-# This is a single data family (only Card channels tested) -- the boundaries
-# (does Local start at 0 or 1? is there a "none/off" value?) are not yet
-# confirmed. No decode function is provided until a Local Analog and an
-# AES50-A/B assignment are also tested and match this arithmetic.
+# Real-hardware tests, 2026-07-06, same console (firmware 4.13), channels
+# 1-8 set to "User In" (rtgin index 20) then individually assigned via the
+# console's User In screen:
+#   round 1: channels 1-8 -> Card 1-8 (1:1)      => userrout/in read 129-136
+#   round 2: channel 1 -> Local Analog In 1      => userrout/in[0] read 1
+#            channel 2 -> AES50-A In 2           => userrout/in[1] read 34
+#            channels 3-8 unchanged (still Card) => userrout/in[2:8] read 131-136
+# All three source families match a single flat, 1-indexed enumeration:
+#   value = range_start + (channel_number - 1)
+# with ranges in the same source order already confirmed in the
+# block-routing enum tables (AN, then A/AES50-A, then B/AES50-B, then
+# CARD). AES50-B's range (81-128) is implied by the same arithmetic (32 +
+# 48 + 48 == 128, the exact boundary before Card) but not independently
+# tested -- assign a channel to an AES50-B input to confirm it directly.
+USERROUT_SOURCE_RANGES: list[tuple[int, int, str]] = [
+    (1, 32, "Local Analog"),
+    (33, 80, "AES50-A"),
+    (81, 128, "AES50-B"),  # boundary implied by arithmetic, not independently tested
+    (129, 160, "Card"),
+]
+
+
+def decode_userrout_value(value: int | None) -> str | None:
+    """Decode a raw userrout/in or userrout/out integer into a
+    "<source> <channel>" string, e.g. 34 -> "AES50-A 2". Confirmed against
+    real hardware for Local Analog, AES50-A, and Card (see comment above);
+    AES50-B is inferred, not independently tested. Returns None if value is
+    None. Every channel/console seen so far reports 0 for "not yet
+    assigned via User Routing" -- not confirmed to mean anything more
+    specific than that (e.g. distinct from an explicit "off"), so it's
+    labeled accordingly rather than silently mapped to a source. Anything
+    else outside the known ranges is reported as unknown, not guessed."""
+    if value is None:
+        return None
+    if value == 0:
+        return "UNSET(0)"
+    for start, end, label in USERROUT_SOURCE_RANGES:
+        if start <= value <= end:
+            return f"{label} {value - start + 1}"
+    return f"UNKNOWN({value})"
 
 # --- userrout: bulk (scene-dump form, untested for live bare-query reply) -
 

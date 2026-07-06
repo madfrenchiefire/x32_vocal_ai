@@ -111,3 +111,23 @@ def test_save_and_load_snapshot_round_trip(tmp_path):
     raw = json.loads(path.read_text())
     assert len(raw["userrout_in"]) == addresses.NUM_USERROUT_IN
     assert len(raw["userrout_out"]) == addresses.NUM_USERROUT_OUT
+
+
+def test_decode_userrout_in_and_out():
+    snapshot = RoutingSnapshot(
+        schema_version=3,
+        created_at="2026-01-01T00:00:00.000Z",
+        name="decode_test",
+        console={"model": "X32"},
+        userrout_in=[1, 34, 131, 0] + [0] * (addresses.NUM_USERROUT_IN - 4),
+        userrout_out=[None] * addresses.NUM_USERROUT_OUT,
+        routing={},
+    )
+    decoded_in = snapshot.decode_userrout_in()
+    assert decoded_in[0] == "Local Analog 1"
+    assert decoded_in[1] == "AES50-A 2"
+    assert decoded_in[2] == "Card 3"
+    assert decoded_in[3] == "UNSET(0)"
+
+    decoded_out = snapshot.decode_userrout_out()
+    assert all(v is None for v in decoded_out)

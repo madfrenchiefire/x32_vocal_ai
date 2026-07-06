@@ -85,6 +85,13 @@ def main(argv: list[str] | None = None) -> int:
         state.set_snapshot(snapshot, str(snapshot_path))
         print(f"Snapshot saved: {snapshot_path}")
 
+        decoded_in = snapshot.decode_userrout_in()
+        assigned_in = [(ch, tok) for ch, tok in enumerate(decoded_in, start=1) if tok != "UNSET(0)"]
+        if assigned_in:
+            print("User In channels currently assigned:")
+            for ch, tok in assigned_in:
+                print(f"  channel {ch}: {tok}")
+
         missing = (
             sum(1 for v in snapshot.userrout_in if v is None)
             + sum(1 for v in snapshot.userrout_out if v is None)

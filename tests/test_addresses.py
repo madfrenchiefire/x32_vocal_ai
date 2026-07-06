@@ -21,3 +21,33 @@ def test_decode_routing_value_none_passthrough():
 
 def test_decode_routing_value_out_of_range_is_reported_not_silently_wrong():
     assert addresses.decode_routing_value("rtgin", 999) == "UNKNOWN(999)"
+
+
+def test_decode_userrout_value_confirmed_source_families():
+    # Confirmed 2026-07-06 against real hardware (firmware 4.13):
+    # channel -> Local Analog In 1 read back as 1.
+    assert addresses.decode_userrout_value(1) == "Local Analog 1"
+    # channel -> AES50-A In 2 read back as 34.
+    assert addresses.decode_userrout_value(34) == "AES50-A 2"
+    # channel -> Card 3 read back as 131.
+    assert addresses.decode_userrout_value(131) == "Card 3"
+    # Range boundaries.
+    assert addresses.decode_userrout_value(32) == "Local Analog 32"
+    assert addresses.decode_userrout_value(33) == "AES50-A 1"
+    assert addresses.decode_userrout_value(80) == "AES50-A 48"
+    assert addresses.decode_userrout_value(129) == "Card 1"
+    assert addresses.decode_userrout_value(160) == "Card 32"
+
+
+def test_decode_userrout_value_aes50b_inferred_not_confirmed():
+    # Boundary implied by arithmetic (32 + 48 + 48 == 128), not yet tested
+    # directly against real hardware -- still exercised here so a future
+    # confirmation (or refutation) shows up as an intentional test change.
+    assert addresses.decode_userrout_value(81) == "AES50-B 1"
+    assert addresses.decode_userrout_value(128) == "AES50-B 48"
+
+
+def test_decode_userrout_value_unset_and_unknown():
+    assert addresses.decode_userrout_value(0) == "UNSET(0)"
+    assert addresses.decode_userrout_value(None) is None
+    assert addresses.decode_userrout_value(999) == "UNKNOWN(999)"

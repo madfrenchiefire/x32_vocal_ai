@@ -74,6 +74,14 @@ class RoutingSnapshot:
             ]
         return decoded
 
+    def decode_userrout_in(self) -> list:
+        """Decode each channel's raw userrout/in int via
+        app.osc.addresses.decode_userrout_value(), e.g. 34 -> "AES50-A 2"."""
+        return [addresses.decode_userrout_value(v) for v in self.userrout_in]
+
+    def decode_userrout_out(self) -> list:
+        return [addresses.decode_userrout_value(v) for v in self.userrout_out]
+
 
 def read_routing_snapshot(
     osc: OscConnection,
