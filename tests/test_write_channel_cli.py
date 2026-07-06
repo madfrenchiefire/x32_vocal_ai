@@ -26,7 +26,11 @@ def test_write_and_readback_matches(fake_x32, tmp_path, capsys):
     assert "Match confirmed by readback" in out
     assert f"{channel_addr} = 5" in out
     assert "Local Analog 5" in out
-    assert f"{block_addr} = 20" in out
+    # Default block value must match channel 9's own User In bank (9-16 ->
+    # 21), not a fixed constant -- a fixed 20 ("User In 1-8") would silently
+    # mis-route real audio, see app.osc.addresses.user_in_block_value().
+    assert f"{block_addr} = 21" in out
+    assert "USER9-16" in out
     assert "To revert, rerun with: --channel 9 --value 0 --block-value 1" in out
 
 
@@ -95,7 +99,7 @@ def test_readback_retries_until_settled(monkeypatch, tmp_path, capsys):
         if address == channel_addr:
             return (5,)
         if address == block_addr:
-            return (1,) if call_counts[address] <= 2 else (20,)
+            return (1,) if call_counts[address] <= 2 else (21,)
         raise AssertionError(f"unexpected address queried: {address}")
 
     monkeypatch.setattr(test_write_channel, "READBACK_RETRY_DELAY_SEC", 0.01)
@@ -115,4 +119,4 @@ def test_readback_retries_until_settled(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "Match confirmed by readback" in out
-    assert f"{block_addr} = 20" in out
+    assert f"{block_addr} = 21" in out

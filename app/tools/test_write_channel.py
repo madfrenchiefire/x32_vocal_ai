@@ -6,11 +6,19 @@ CLAUDE.md (those remain unimplemented, see app.osc.routing_apply). It
 exists to confirm, against real hardware, that setting
 /config/userrout/in/NN actually lands where expected.
 
-A per-channel userrout/in value only takes visible effect once that
-channel's containing 8-channel block is in "User In" mode (confirmed
-raw value 20 on the "rtgin" table). Flipping a block affects all 8
-channels in it, not just the one being tested -- this tool prints exactly
-what it's about to touch before touching it.
+A per-channel userrout/in value only actually drives audio once that
+channel's containing 8-channel block is set to pull from the *matching*
+User In bank -- "User In" is itself split into four banks (1-8, 9-16,
+17-24, 25-32), one raw value each on "rtgin" (20/21/22/23), and the block
+must pull from the bank matching the channel's own position (e.g. channel
+9's block needs bank 9-16 = 21, not bank 1-8 = 20) or the console uses a
+different (likely unconfigured) slot for real audio -- confirmed against
+real hardware via the console's own routing matrix screen. This tool
+computes the correct block value automatically from --channel via
+app.osc.addresses.user_in_block_value(), rather than a fixed constant.
+Flipping a block affects all 8 channels in it, not just the one being
+tested -- this tool prints exactly what it's about to touch before
+touching it.
 
 Snapshots (reads) the channel value and its block's value before writing
 either, logs everything through DiagnosticsLogger with a correlation_id,
@@ -43,8 +51,6 @@ from app.config import load_config
 from app.diagnostics.logger import DiagnosticsLogger
 from app.osc import addresses
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
-
-USER_IN_VALUE = 20  # confirmed on "rtgin" -- see app.osc.addresses
 
 READBACK_RETRY_ATTEMPTS = 5
 READBACK_RETRY_DELAY_SEC = 0.3
@@ -95,8 +101,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--block-value",
         type=int,
-        default=USER_IN_VALUE,
-        help=f"Raw value to write to the channel's containing routing block (default {USER_IN_VALUE} = User In)",
+        default=None,
+        help=(
+            "Raw value to write to the channel's containing routing block. Default: the User In "
+            "bank matching --channel's own position (see app.osc.addresses.user_in_block_value())."
+        ),
     )
     parser.add_argument("--skip-block-flip", action="store_true", help="Only write the channel value, leave the block alone")
     parser.add_argument("--config", default=None)
@@ -111,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.channel <= addresses.NUM_USERROUT_IN:
         print(f"ERROR: --channel must be 1-{addresses.NUM_USERROUT_IN}", file=sys.stderr)
         return 2
+
+    if args.block_value is None:
+        args.block_value = addresses.user_in_block_value(args.channel)
 
     config = load_config(args.config)
     config.console_ip = args.console

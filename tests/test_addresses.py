@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.osc import addresses
 
 
@@ -8,11 +10,38 @@ def test_decode_routing_value_known_tokens():
     assert addresses.decode_routing_value("rtgin", 0) == "AN1-8"
 
 
-def test_decode_routing_value_user_confirmed_on_rtgin():
-    # Confirmed 2026-07-06 against real hardware: setting a channel block's
-    # source to "User In" on the console changed /config/routing/IN/1-8
-    # from 0 ("AN1-8") to 20, one past rtgin's 20 named physical sources.
-    assert addresses.decode_routing_value("rtgin", 20) == "USER"
+def test_decode_routing_value_user_banks_confirmed_on_rtgin():
+    # Confirmed 2026-07-06 against real hardware, cross-checked with the
+    # console's own routing matrix screen: "User In" is split into the same
+    # four 8-channel banks as every other source type. Setting a channel
+    # block's source to "User In 1-8" changed /config/routing/IN/1-8 from 0
+    # ("AN1-8") to 20; "User In 9-16" (needed for the block covering
+    # channels 9-16 to actually use that block's own userrout/in slots) is
+    # 21. 22/23 ("User In 17-24"/"25-32") are inferred by the same pattern.
+    assert addresses.decode_routing_value("rtgin", 20) == "USER1-8"
+    assert addresses.decode_routing_value("rtgin", 21) == "USER9-16"
+    assert addresses.decode_routing_value("rtgin", 22) == "USER17-24"
+    assert addresses.decode_routing_value("rtgin", 23) == "USER25-32"
+
+
+def test_user_in_block_value_matches_channel_position():
+    # Each channel's containing 8-channel block must pull from the User In
+    # bank matching that channel's own position, or the console uses a
+    # different (likely unconfigured) slot for real audio -- see the note
+    # above app.osc.addresses.ROUTING_ENUM_TABLES.
+    assert addresses.user_in_block_value(1) == 20  # block 1-8 -> USER1-8
+    assert addresses.user_in_block_value(8) == 20
+    assert addresses.user_in_block_value(9) == 21  # block 9-16 -> USER9-16 (confirmed)
+    assert addresses.user_in_block_value(16) == 21
+    assert addresses.user_in_block_value(17) == 22  # block 17-24 -> USER17-24 (inferred)
+    assert addresses.user_in_block_value(25) == 23  # block 25-32 -> USER25-32 (inferred)
+
+
+def test_user_in_block_value_rejects_out_of_range_channel():
+    with pytest.raises(ValueError):
+        addresses.user_in_block_value(0)
+    with pytest.raises(ValueError):
+        addresses.user_in_block_value(33)
 
 
 def test_decode_routing_value_none_passthrough():

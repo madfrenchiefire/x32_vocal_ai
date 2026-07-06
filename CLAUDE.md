@@ -69,14 +69,25 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
      other channels' addresses in the same block.
   3. Use `/config/userrout/out/NN` + the CARD block routing to cherry-pick arbitrary
      selected channels' preamps onto Card outs.
-  4. Flip block routing (`/config/routing/*/<block>`) to User In / User Out last,
-     after everything is staged.
+  4. Flip block routing (`/config/routing/*/<block>`) to the User In/Out bank
+     **matching that block's own channel range** (e.g. block 9-16 needs "User In
+     9-16" specifically, not just any "User" value — see `user_in_block_value()`
+     in "Open items to verify"), after everything is staged. Confirmed on real
+     hardware: a channel's own `userrout/in/NN` value still displays correctly
+     on the per-channel config screen even when its block is on the *wrong*
+     User bank, but real audio for that channel would come from the other
+     bank's slots instead — the block/bank match is load-bearing, not cosmetic.
   - Pace writes (a few ms between messages, UDP); read back key values to confirm
-    before reporting success.
+    before reporting success — but allow a short settle delay and retry before
+    treating a stale immediate readback as a failed write (confirmed on real
+    hardware: a block-routing write can visibly take effect on the console
+    before a query sent right after the write reflects it).
 - **Per-channel bypass/restore** = write that one channel's `/config/userrout/in/NN`
   (or `/out/NN`) address back to its snapshot value — a genuinely single-value
-  write, no read-modify-write of a larger array needed. Implemented as a toggle
-  (bypass ↔ re-insert).
+  write, no read-modify-write of a larger array needed, *provided the channel's
+  block is already on the matching User bank* (true for a channel that was
+  already inserted via this app; not true if the block's bank was never set or
+  was set wrong). Implemented as a toggle (bypass ↔ re-insert).
 - **Full restore** = replay the snapshot (web UI + crash watchdog; no physical button).
 - **Console feedback**: write channel scribble-strip colors/names to show per-channel
   state (inserted vs bypassed, AI active/suppressing). Restore names/colors on disengage
@@ -165,17 +176,28 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   (`AN1-8`/`AES50A OUT1-8.../P169-16`/`CARD1-8...`/etc. — see git history
   for the full comparison). Confirms both the addresses and the decode
   tables for the six routing-block enums.
-- **"User In"/"User Out" enum value — confirmed on `rtgin` only.** Setting a
-  channel block's source to "User In" on the console (Setup → Routing)
-  changed `/config/routing/IN/1-8` from `0` (`AN1-8`) to `20` — one past
-  `rtgin`'s 20 named physical sources, matching a previously-unlabeled
-  trailing `""` entry in Maillot's `XRtgin[]` array (turns out not to be a
-  mere end-of-array sentinel). Added as `"USER"` in `ROUTING_ENUM_TABLES`.
-  The same trailing-entry pattern exists in `rtaea`/`rtina`/`rout1`/`rout5`
-  and is added there too, but **only inferred by analogy, not independently
-  confirmed** — test setting an AES50A/AES50B/OUT/AUX block to User
-  In/Out and check the raw value lands on that same trailing index before
-  trusting it.
+- **"User In" enum values — confirmed on `rtgin`, and it's 4 values, not 1.**
+  Setting a channel block's source to "User In" on the console (Setup →
+  Routing) changed `/config/routing/IN/1-8` from `0` (`AN1-8`) to `20` —
+  one past `rtgin`'s 20 named physical sources, matching a
+  previously-unlabeled trailing `""` entry in Maillot's `XRtgin[]` array.
+  Initially assumed to be one generic "User" option; **cross-checking the
+  console's own Setup → Routing → Inputs matrix screen showed "User In" is
+  itself split into the same four 8-channel banks as every other source
+  type** (1-8/9-16/17-24/25-32), each a separate raw value: `20` = "User In
+  1-8" (confirmed), `21` = "User In 9-16" (confirmed), `22`/`23` = "User In
+  17-24"/"25-32" (inferred by the same sequential pattern, not yet tested).
+  `app.osc.addresses.user_in_block_value(channel)` computes the correct
+  value for a given channel's own block. **This match matters, not just
+  labeling**: a block set to the *wrong* User In bank (e.g. block 9-16 set
+  to bank 1-8) still shows that channel's own `userrout/in/NN` value
+  correctly on the per-channel config screen, but the routing matrix
+  confirmed real audio for those channels would actually come from the
+  *other* bank's slots — confirmed by testing exactly that mismatch on
+  real hardware before correcting it. `rtaea`/`rtina`/`rout1`/`rout5` still
+  carry only one inferred generic `"USER"` placeholder each — given the
+  rtgin correction, they likely also need 4 distinct per-bank entries, not
+  yet tested.
 - **`userrout/in`/`userrout/out` value semantics — confirmed for all four
   source families (2026-07-06, real hardware, firmware 4.13).** A channel
   assigned to Local Analog In 1 read back `1`; AES50-A In 2 read back `34`;
