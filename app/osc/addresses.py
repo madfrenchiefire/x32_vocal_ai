@@ -1,77 +1,68 @@
 """X32 OSC address constants.
 
-Two confidence tiers, per CLAUDE.md's "Open items to verify (do not
-assume)":
+CONFIRMED via a real console scene (``.scn``) file dump, uploaded and
+inspected 2026-07-06 -- scene files are literal OSC address/value dumps of
+console state, so this is empirical confirmation, not a guess. See
+CLAUDE.md's "Open items to verify" for the history: an earlier version of
+this module guessed per-channel addresses (``/config/userrout/in/NN``,
+``/config/routing/IN/1-8``-style blocks) based on CLAUDE.md's own
+(incorrect) assumption. The real scene dump shows a different, simpler
+shape:
 
-CONFIRMED
-    Either standard, widely-relied-upon X32 OSC addresses (``/xinfo``,
-    ``/xremote``) or addresses whose exact string CLAUDE.md itself already
-    specifies (``/config/userrout/in/NN`` and ``/config/userrout/out/NN``,
-    channels 1-32).
+    /config/userrout/out 0 0 0 ... (48 values)
+    /config/userrout/in  0 0 0 ... (32 values)
+    /config/routing REC
+    /config/routing/IN     AN1-8 AN9-16 AN17-24 AN25-32 AUX1-4
+    /config/routing/AES50A OUT1-8 OUT9-16 OUT1-8 OUT9-16 P161-8 P169-16
+    /config/routing/AES50B OUT1-8 OUT9-16 OUT1-8 OUT9-16 P161-8 P169-16
+    /config/routing/CARD   AN1-8 AN9-16 AN17-24 AN25-32
+    /config/routing/OUT    OUT1-4 OUT5-8 OUT9-12 OUT13-16
+    /config/routing/PLAY   CARD1-8 CARD9-16 CARD17-24 CARD25-32 AUX1-4
 
-UNVERIFIED (``TODO-VERIFY``)
-    Best-effort placeholders for the block-level routing nodes
-    (``/config/routing/IN/*`` and the CARD output blocks). CLAUDE.md
-    describes these conceptually but does not give the byte-exact address
-    strings, and flags them explicitly as "do not assume." These are
-    read-only queries (no risk to the console either way), but the values
-    returned under these addresses must be treated as unverified until
-    checked against the Patrick-Gilles Maillot unofficial X32 OSC document
-    or confirmed empirically against a real console. Do not use them to
-    drive write/apply logic without that confirmation.
+i.e. each of these is a *single* OSC address whose reply carries an array
+of values (per-channel-index for userrout, per-8-channel-block source
+tokens for the routing nodes) -- there is no addressable
+``/config/userrout/in/01`` sub-node. A per-channel bypass/restore (per
+CLAUDE.md's routing-automation section) therefore means: read the full
+array, mutate the one index for the target channel, and write the whole
+array back as a single message -- still "a single message," just not a
+single-value one.
+
+The *meaning* of individual values (which integer maps to which physical
+source for userrout, what "AN1-8"/"P161-8" mean precisely for the routing
+nodes) is still not decoded here -- per CLAUDE.md's rule to always store
+raw data, not an interpreted summary. Only the address shapes are
+confirmed.
 """
 from __future__ import annotations
 
 XINFO = "/xinfo"
 XREMOTE = "/xremote"
 
-NUM_CHANNELS = 32
+NUM_USERROUT_IN = 32
+NUM_USERROUT_OUT = 48
 
+USERROUT_IN = "/config/userrout/in"
+USERROUT_OUT = "/config/userrout/out"
 
-def userrout_in(channel: int) -> str:
-    """CONFIRMED -- address string given directly in CLAUDE.md."""
-    _check_channel(channel)
-    return f"/config/userrout/in/{channel:02d}"
+# CONFIRMED -- see module docstring. Queried/replied as a single address
+# each; args are raw block-source tokens, not decoded.
+ROUTING_REC = "/config/routing"
+ROUTING_IN = "/config/routing/IN"
+ROUTING_AES50A = "/config/routing/AES50A"
+ROUTING_AES50B = "/config/routing/AES50B"
+ROUTING_CARD = "/config/routing/CARD"
+ROUTING_OUT = "/config/routing/OUT"
+ROUTING_PLAY = "/config/routing/PLAY"
 
+ROUTING_ADDRESSES_VERIFIED = True
 
-def userrout_out(channel: int) -> str:
-    """CONFIRMED -- address string given directly in CLAUDE.md."""
-    _check_channel(channel)
-    return f"/config/userrout/out/{channel:02d}"
-
-
-def all_userrout_in() -> list[str]:
-    return [userrout_in(ch) for ch in range(1, NUM_CHANNELS + 1)]
-
-
-def all_userrout_out() -> list[str]:
-    return [userrout_out(ch) for ch in range(1, NUM_CHANNELS + 1)]
-
-
-def _check_channel(channel: int) -> None:
-    if not 1 <= channel <= NUM_CHANNELS:
-        raise ValueError(f"channel must be 1-{NUM_CHANNELS}, got {channel}")
-
-
-# --- UNVERIFIED: block-level routing (see module docstring) ---------------
-
-ROUTING_ADDRESSES_VERIFIED = False
-
-# Best-effort guess: 4 blocks of 8 channels, mirroring the "Config > Routing"
-# grid layout described in CLAUDE.md. TODO-VERIFY against the Maillot doc or
-# empirically before relying on the decoded meaning of these values -- raw
-# values are still captured/stored even if these addresses turn out wrong,
-# they'll just come back empty/timed-out.
-ROUTING_IN_BLOCKS_TODO_VERIFY = [
-    "/config/routing/IN/1-8",
-    "/config/routing/IN/9-16",
-    "/config/routing/IN/17-24",
-    "/config/routing/IN/25-32",
-]
-
-CARD_OUT_BLOCKS_TODO_VERIFY = [
-    "/config/routing/OUT/CARD/1-8",
-    "/config/routing/OUT/CARD/9-16",
-    "/config/routing/OUT/CARD/17-24",
-    "/config/routing/OUT/CARD/25-32",
-]
+ROUTING_BLOCK_ADDRESSES = {
+    "rec": ROUTING_REC,
+    "in": ROUTING_IN,
+    "aes50a": ROUTING_AES50A,
+    "aes50b": ROUTING_AES50B,
+    "card": ROUTING_CARD,
+    "out": ROUTING_OUT,
+    "play": ROUTING_PLAY,
+}

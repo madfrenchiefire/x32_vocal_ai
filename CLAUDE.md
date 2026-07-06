@@ -36,21 +36,32 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 - `python-osc`. Send `/xremote` and refresh every ~8 s to receive state changes.
   Subscribe to `/meters` (binary blobs) for live channel meters.
 - On connect: query `/xinfo`, require firmware 4.0+ (User In/Out routing).
+- **Confirmed address shapes** (from a real console scene file, see "Open items to
+  verify" below): `/config/userrout/in` and `/config/userrout/out` are each a
+  *single* OSC address carrying the whole array (32 values for `in`, 48 for
+  `out`) — there is no per-channel `/config/userrout/in/NN` sub-address. The
+  six block-routing nodes (`/config/routing/IN`, `/AES50A`, `/AES50B`,
+  `/CARD`, `/OUT`, `/PLAY`) are likewise each a single address carrying an
+  array of per-8-channel-block source tokens (e.g. `AN1-8`, `AUX1-4`).
 - **Routing automation** (the "Apply" button):
-  1. Snapshot: `/config/routing/IN/*` blocks, all 32 `/config/userrout/in/NN`,
-     CARD output blocks, `/config/userrout/out/NN`. Store as named JSON snapshot.
-  2. For each selected channel, set its `userrout/in` entry to the matching Card return.
-     CRITICAL: input routing switches in blocks of 8 — all non-selected channels in an
-     affected block must have their userrout entries set to mirror their original
-     sources (known from the snapshot) so they are unaffected.
-  3. Use `userrout/out` + CARD-block = User Out to cherry-pick arbitrary selected
-     channels' preamps onto Card outs 1–8 (selection can be scattered across blocks).
-  4. Flip block routing to User In / User Out last, after everything is staged.
+  1. Snapshot: read `/config/userrout/in`, `/config/userrout/out`, and the six
+     `/config/routing/*` block nodes above in full. Store as named JSON snapshot.
+  2. For each selected channel, mutate its index in the `userrout/in` array to
+     the matching Card return, then write the *entire* array back in one
+     message. CRITICAL: since it's one array covering all 32 channels,
+     non-selected channels' indices must be carried over unchanged from the
+     snapshot in that same write so they are unaffected.
+  3. Use `userrout/out` + the CARD block routing to cherry-pick arbitrary
+     selected channels' preamps onto Card outs (mutate the relevant indices in
+     the 48-element array, write the whole array back).
+  4. Flip block routing (`/config/routing/*`) to User In / User Out last,
+     after everything is staged.
   - Pace writes (a few ms between messages, UDP); read back key values to confirm
     before reporting success.
-- **Per-channel bypass/restore** = rewrite that one channel's `userrout/in` entry back
-  to its snapshot value (single message; block stays in User mode; other channels
-  unaffected). Implemented as a toggle (bypass ↔ re-insert).
+- **Per-channel bypass/restore** = read the current `userrout/in` array, rewrite
+  just that one channel's index back to its snapshot value, write the whole
+  array back (still a single message; block stays in User mode; other
+  channels unaffected). Implemented as a toggle (bypass ↔ re-insert).
 - **Full restore** = replay the snapshot (web UI + crash watchdog; no physical button).
 - **Console feedback**: write channel scribble-strip colors/names to show per-channel
   state (inserted vs bypassed, AI active/suppressing). Restore names/colors on disengage
@@ -100,19 +111,25 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 5. Watchdog, event log, polish.
 
 ## Open items to verify (do not assume)
-- Exact `/config/userrout` value maps (Local/AES50/Card ranges) — Maillot OSC doc.
 - MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical.
 - `/meters` blob layout for the meters we need.
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
-- Exact `/config/routing/IN/*` and CARD-output block address strings. The
-  per-channel `/config/userrout/in/NN` and `/config/userrout/out/NN` addresses
-  (channels 1–32) are confirmed and implemented. The block-level routing
-  addresses are best-effort placeholders in `app/osc/addresses.py`
-  (`ROUTING_IN_BLOCKS_TODO_VERIFY`, `CARD_OUT_BLOCKS_TODO_VERIFY`,
-  `ROUTING_ADDRESSES_VERIFIED = False`) — read-only queries only, never used
-  to drive writes. Every `RoutingSnapshot` carries `routing_addresses_verified`
-  so callers can tell confirmed data from placeholder data. Confirm against
-  the Maillot doc or empirically, then flip `ROUTING_ADDRESSES_VERIFIED`.
+- **Value semantics for `/config/userrout/in` and `/config/userrout/out`.**
+  Address shapes are now confirmed (2026-07-06, from a real console scene
+  file dump): each is a single address, `in` carrying 32 integer values,
+  `out` carrying 48. What each integer *means* (which physical/AES50/local
+  source a given value selects) is not yet decoded — `app/osc/addresses.py`
+  and `app/osc/routing_snapshot.py` store the raw array as-is
+  (`ROUTING_ADDRESSES_VERIFIED = True` reflects the address shape being
+  confirmed, not the value-to-source mapping). Confirm the integer→source
+  mapping against the Maillot doc or empirically (set a known source on the
+  desk, query, note the value) before using these values to drive writes.
+- **Value semantics for `/config/routing/{IN,AES50A,AES50B,CARD,OUT,PLAY}`.**
+  Addresses and their block-source tokens (e.g. `AN1-8`, `AUX1-4`, `P161-8`)
+  are confirmed from the same scene file — see `app/osc/addresses.py`. The
+  full token vocabulary (all valid values per node) isn't enumerated yet;
+  treat unfamiliar tokens as opaque strings, not an exhaustive enum, until
+  more scenes/consoles are checked.
 
 ## Diagnostics event schema
 
@@ -150,7 +167,7 @@ last 10,000 events, `AppConfig.ring_buffer_size`). Every event:
 
 ### Payload shape per category
 
-- `osc_tx` / `osc_rx`: `{"address": "/config/userrout/in/01", "args": [5]}`
+- `osc_tx` / `osc_rx`: `{"address": "/config/userrout/in", "args": [0, 0, ...]}`
   — the exact OSC address and argument list, no interpretation.
 - `midi_rx`: `{"raw_bytes": [176, 1, 127], "parsed": {...}}` — raw MIDI
   bytes plus whatever meaning was decoded from them.

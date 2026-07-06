@@ -1,12 +1,16 @@
 """Routing apply/restore -- NOT IMPLEMENTED THIS PHASE.
 
-Per CLAUDE.md's routing-automation steps 2-4 (writing userrout/in and
-userrout/out entries in blocks-of-8-safe fashion, flipping block routing to
-User In/Out last, pacing writes, reading back to confirm) plus per-channel
-bypass/restore and full-snapshot restore. Depends on the block-level
-routing addresses being verified (see app.osc.addresses) before any write
-logic can be trusted -- do not implement against the TODO-VERIFY
-placeholders.
+Per CLAUDE.md's routing-automation steps 2-4: write ``/config/userrout/in``
+and ``/config/userrout/out`` (flipping block routing to User In/Out last,
+pacing writes, reading back to confirm) plus per-channel bypass/restore and
+full-snapshot restore.
+
+Confirmed from a real scene file (see app.osc.addresses): userrout/in and
+userrout/out are each a *single* address carrying the whole 32-/48-element
+array, not one address per channel. That means "rewrite one channel's
+userrout entry" (CLAUDE.md's per-channel bypass) is: read the array from
+the snapshot, mutate the one index for the target channel, and send the
+whole array back as one message -- still a single write, just array-shaped.
 """
 from __future__ import annotations
 
