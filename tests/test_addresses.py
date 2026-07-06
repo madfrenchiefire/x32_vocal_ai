@@ -39,10 +39,11 @@ def test_decode_userrout_value_confirmed_source_families():
     assert addresses.decode_userrout_value(160) == "Card 32"
 
 
-def test_decode_userrout_value_aes50b_inferred_not_confirmed():
-    # Boundary implied by arithmetic (32 + 48 + 48 == 128), not yet tested
-    # directly against real hardware -- still exercised here so a future
-    # confirmation (or refutation) shows up as an intentional test change.
+def test_decode_userrout_value_aes50b():
+    # Confirmed 2026-07-06 against real hardware: channel -> AES50-B In 3
+    # read back as 83, channel -> AES50-B In 4 read back as 84.
+    assert addresses.decode_userrout_value(83) == "AES50-B 3"
+    assert addresses.decode_userrout_value(84) == "AES50-B 4"
     assert addresses.decode_userrout_value(81) == "AES50-B 1"
     assert addresses.decode_userrout_value(128) == "AES50-B 48"
 

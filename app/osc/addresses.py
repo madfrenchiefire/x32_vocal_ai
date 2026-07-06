@@ -59,7 +59,7 @@ def userrout_out_addr(channel: int) -> str:
 ALL_USERROUT_IN = [userrout_in_addr(ch) for ch in range(1, NUM_USERROUT_IN + 1)]
 ALL_USERROUT_OUT = [userrout_out_addr(ch) for ch in range(1, NUM_USERROUT_OUT + 1)]
 
-# --- userrout value semantics: confirmed for Local Analog, AES50-A, Card --
+# --- userrout value semantics: confirmed for all four source families -----
 #
 # Real-hardware tests, 2026-07-06, same console (firmware 4.13), channels
 # 1-8 set to "User In" (rtgin index 20) then individually assigned via the
@@ -68,17 +68,17 @@ ALL_USERROUT_OUT = [userrout_out_addr(ch) for ch in range(1, NUM_USERROUT_OUT + 
 #   round 2: channel 1 -> Local Analog In 1      => userrout/in[0] read 1
 #            channel 2 -> AES50-A In 2           => userrout/in[1] read 34
 #            channels 3-8 unchanged (still Card) => userrout/in[2:8] read 131-136
-# All three source families match a single flat, 1-indexed enumeration:
+#   round 3: channel 3 -> AES50-B In 3           => userrout/in[2] read 83
+#            channel 4 -> AES50-B In 4           => userrout/in[3] read 84
+# All four source families match a single flat, 1-indexed enumeration:
 #   value = range_start + (channel_number - 1)
 # with ranges in the same source order already confirmed in the
 # block-routing enum tables (AN, then A/AES50-A, then B/AES50-B, then
-# CARD). AES50-B's range (81-128) is implied by the same arithmetic (32 +
-# 48 + 48 == 128, the exact boundary before Card) but not independently
-# tested -- assign a channel to an AES50-B input to confirm it directly.
+# CARD).
 USERROUT_SOURCE_RANGES: list[tuple[int, int, str]] = [
     (1, 32, "Local Analog"),
     (33, 80, "AES50-A"),
-    (81, 128, "AES50-B"),  # boundary implied by arithmetic, not independently tested
+    (81, 128, "AES50-B"),
     (129, 160, "Card"),
 ]
 
@@ -86,13 +86,13 @@ USERROUT_SOURCE_RANGES: list[tuple[int, int, str]] = [
 def decode_userrout_value(value: int | None) -> str | None:
     """Decode a raw userrout/in or userrout/out integer into a
     "<source> <channel>" string, e.g. 34 -> "AES50-A 2". Confirmed against
-    real hardware for Local Analog, AES50-A, and Card (see comment above);
-    AES50-B is inferred, not independently tested. Returns None if value is
-    None. Every channel/console seen so far reports 0 for "not yet
-    assigned via User Routing" -- not confirmed to mean anything more
-    specific than that (e.g. distinct from an explicit "off"), so it's
-    labeled accordingly rather than silently mapped to a source. Anything
-    else outside the known ranges is reported as unknown, not guessed."""
+    real hardware for all four source families (see comment above).
+    Returns None if value is None. Every channel/console seen so far
+    reports 0 for "not yet assigned via User Routing" -- not confirmed to
+    mean anything more specific than that (e.g. distinct from an explicit
+    "off"), so it's labeled accordingly rather than silently mapped to a
+    source. Anything else outside the known ranges is reported as
+    unknown, not guessed."""
     if value is None:
         return None
     if value == 0:
