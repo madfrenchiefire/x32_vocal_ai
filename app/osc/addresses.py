@@ -180,11 +180,11 @@ ROUTING_PLAY = "/config/routing/PLAY"
 # Setup > Routing > Inputs matrix screen: "User In" is itself split into
 # the same four 8-channel banks as every other source type (1-8, 9-16,
 # 17-24, 25-32), each a *separate* enum value one past the named physical
-# sources -- e.g. on rtgin, 20 = "User In 1-8", 21 = "User In 9-16" (both
-# directly confirmed: writing each value and reading the routing matrix
-# screen showed the orange selector move to the matching User In column).
-# 22/23 ("User In 17-24"/"25-32") are inferred by the same sequential
-# pattern, not yet independently tested.
+# sources -- e.g. on rtgin, 20 = "User In 1-8", 21 = "User In 9-16", 22 =
+# "User In 17-24" (all three directly confirmed: writing each value and
+# reading the routing matrix screen showed the orange selector move to the
+# matching User In column). 23 ("User In 25-32") is inferred by the same
+# sequential pattern, not yet independently tested.
 #
 # IMPORTANT for routing writes: which User bank a block pulls from must
 # match the per-channel userrout/in/NN slot you actually configured, or
@@ -212,7 +212,7 @@ ROUTING_ENUM_TABLES: dict[str, list[str]] = {
         "CARD1-8", "CARD9-16", "CARD17-24", "CARD25-32",
         "USER1-8",    # confirmed: index 20
         "USER9-16",   # confirmed: index 21
-        "USER17-24",  # inferred by pattern, not yet independently confirmed
+        "USER17-24",  # confirmed: index 22
         "USER25-32",  # inferred by pattern, not yet independently confirmed
     ],
     "rtaea": [

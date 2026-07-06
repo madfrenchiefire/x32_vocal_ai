@@ -15,9 +15,10 @@ def test_decode_routing_value_user_banks_confirmed_on_rtgin():
     # console's own routing matrix screen: "User In" is split into the same
     # four 8-channel banks as every other source type. Setting a channel
     # block's source to "User In 1-8" changed /config/routing/IN/1-8 from 0
-    # ("AN1-8") to 20; "User In 9-16" (needed for the block covering
-    # channels 9-16 to actually use that block's own userrout/in slots) is
-    # 21. 22/23 ("User In 17-24"/"25-32") are inferred by the same pattern.
+    # ("AN1-8") to 20; "User In 9-16" and "User In 17-24" (needed for the
+    # blocks covering channels 9-16 and 17-24 to actually use those blocks'
+    # own userrout/in slots) are 21 and 22, also confirmed. 23 ("User In
+    # 25-32") is inferred by the same pattern, not yet independently tested.
     assert addresses.decode_routing_value("rtgin", 20) == "USER1-8"
     assert addresses.decode_routing_value("rtgin", 21) == "USER9-16"
     assert addresses.decode_routing_value("rtgin", 22) == "USER17-24"
@@ -33,8 +34,10 @@ def test_user_in_block_value_matches_channel_position():
     assert addresses.user_in_block_value(8) == 20
     assert addresses.user_in_block_value(9) == 21  # block 9-16 -> USER9-16 (confirmed)
     assert addresses.user_in_block_value(16) == 21
-    assert addresses.user_in_block_value(17) == 22  # block 17-24 -> USER17-24 (inferred)
+    assert addresses.user_in_block_value(17) == 22  # block 17-24 -> USER17-24 (confirmed)
+    assert addresses.user_in_block_value(24) == 22
     assert addresses.user_in_block_value(25) == 23  # block 25-32 -> USER25-32 (inferred)
+    assert addresses.user_in_block_value(32) == 23
 
 
 def test_user_in_block_value_rejects_out_of_range_channel():
