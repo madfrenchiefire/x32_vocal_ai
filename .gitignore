@@ -8,9 +8,10 @@ venv/
 htmlcov/
 
 # Runtime output (per-session data, not source)
-logs/*.jsonl
-snapshots/*.json
-snapshots/*.zip
+logs/**/*.jsonl
+logs/**/*.zip
+snapshots/**/*.json
+snapshots/**/*.zip
 !snapshots/.gitkeep
 !logs/.gitkeep
 
