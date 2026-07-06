@@ -4,6 +4,10 @@ from app.tools import test_write_routing
 
 
 def test_write_and_readback_matches_known_address(fake_x32, tmp_path, capsys):
+    # This exact address/value pair is what confirmed, against real
+    # hardware, that CARD blocks pull from the User *Out* pool (not User
+    # In): /config/routing/CARD/9-16 set to 26 read back and displayed as
+    # "User Out 1-8" on the console's routing matrix.
     address = "/config/routing/CARD/9-16"  # known table: rtaea
     fake_x32.extra_responses[address] = (1,)
 
@@ -19,7 +23,7 @@ def test_write_and_readback_matches_known_address(fake_x32, tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert f"Before: {address} = 1 (AN9-16)" in out
-    assert f"After:  {address} = 26 (USER)" in out
+    assert f"After:  {address} = 26 (USEROUT1-8)" in out
     assert "Match confirmed by readback" in out
     assert f"To revert, rerun with: --address {address} --value 1" in out
 

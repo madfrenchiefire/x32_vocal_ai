@@ -193,14 +193,30 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   correctly on the per-channel config screen, but the routing matrix
   confirmed real audio for those channels would actually come from the
   *other* bank's slots — confirmed by testing exactly that mismatch on
-  real hardware before correcting it. `rtaea`/`rtina`/`rout1`/`rout5` still
-  carry only one inferred generic `"USER"` placeholder each — given the
-  rtgin correction, they likely also need 4 distinct per-bank entries, not
-  yet tested. Use `python -m app.tools.test_write_routing --console <ip>
-  --address <routing address> --value <candidate>` to test any of these
-  (e.g. `/config/routing/CARD/9-16`) without writing new code per block
-  type, then check the console's routing matrix screen (the tab matching
-  the address) for which column lit up.
+  real hardware before correcting it.
+- **There are two separate "User Routing" pools, not one — confirmed
+  2026-07-06.** User In (32 slots, `/config/userrout/in/NN`, feeding INTO
+  the channel strips) is distinct from User Out (48 slots,
+  `/config/userrout/out/NN`, feeding a *send* — AES50 network, Card
+  record, or analog output). Which pool a block's "User" enum value pulls
+  from depends on the block's direction, not just its table:
+  `/config/routing/CARD/9-16` set to `26` (one past `rtaea`'s 26 named
+  sources) read back and displayed as **"User Out 1-8"**, not "User In
+  1-8" — confirming CARD (and by the same shared table, AES50-A/AES50-B)
+  pull from User *Out*, banked the same way AES50-A/B's own physical
+  blocks already are (6 banks of 8, matching the 48 User Out slots).
+  This matches CLAUDE.md's own routing-automation design ("use
+  `userrout/out` + CARD block routing to cherry-pick arbitrary channels
+  onto Card outs") rather than contradicting it. Only `rtaea`'s first bank
+  (`26` = "User Out 1-8") is directly confirmed; `27`-`31` are inferred by
+  the same pattern. `rtina` (IN/AUX, PLAY/AUX) and `rout1`/`rout5` (OUT,
+  physical analog outputs) are still untested — by the same input-vs-output
+  reasoning, `rtina` is more likely User In and `rout1`/`rout5` more likely
+  User Out, but that's a guess by analogy, not confirmed. Use
+  `python -m app.tools.test_write_routing --console <ip> --address
+  <routing address> --value <candidate>` to test any of these without
+  writing new code per block type, then check the console's routing matrix
+  screen (the tab matching the address) for which column lit up.
 - **`userrout/in`/`userrout/out` value semantics — confirmed for all four
   source families (2026-07-06, real hardware, firmware 4.13).** A channel
   assigned to Local Analog In 1 read back `1`; AES50-A In 2 read back `34`;

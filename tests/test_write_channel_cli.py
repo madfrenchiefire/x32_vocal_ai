@@ -30,7 +30,7 @@ def test_write_and_readback_matches(fake_x32, tmp_path, capsys):
     # 21), not a fixed constant -- a fixed 20 ("User In 1-8") would silently
     # mis-route real audio, see app.osc.addresses.user_in_block_value().
     assert f"{block_addr} = 21" in out
-    assert "USER9-16" in out
+    assert "USERIN9-16" in out
     assert "To revert, rerun with: --channel 9 --value 0 --block-value 1" in out
 
 
