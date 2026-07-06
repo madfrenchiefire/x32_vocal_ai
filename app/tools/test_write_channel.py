@@ -18,6 +18,14 @@ then reads both back to confirm the write matches. Does not revert
 automatically -- rerun with the original values (printed in the "Before:"
 line) to put things back, e.g.:
 
+CONFIRMED 2026-07-06 against real hardware: a block-routing write does not
+read back correctly on an immediate query -- the console needs a moment to
+settle. An immediate readback of /config/routing/IN/9-16 showed the old
+value right after a write that had, per the console's own display, already
+taken effect; the same query moments later (no other action taken) showed
+the correct new value. The readback below retries a few times with a
+short delay rather than reporting a mismatch on the first stale read.
+
     # Test: set channel 9 to Local Analog In 5, flipping its block to User In
     python -m app.tools.test_write_channel --console 10.10.0.142 --channel 9 --value 5
 
@@ -29,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 from app.config import load_config
 from app.diagnostics.logger import DiagnosticsLogger
@@ -36,6 +45,42 @@ from app.osc import addresses
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 
 USER_IN_VALUE = 20  # confirmed on "rtgin" -- see app.osc.addresses
+
+READBACK_RETRY_ATTEMPTS = 5
+READBACK_RETRY_DELAY_SEC = 0.3
+
+
+def _query_until_match(
+    osc: OscConnection,
+    address: str,
+    expected_value: int,
+    diagnostics: DiagnosticsLogger,
+    correlation_id: str,
+    attempts: int = READBACK_RETRY_ATTEMPTS,
+) -> int:
+    """Query address up to `attempts` times, pausing READBACK_RETRY_DELAY_SEC
+    between tries, until it reads back as expected_value or attempts run
+    out. Some writes (confirmed: block-routing changes) take a moment to
+    settle on the console before a subsequent read reflects them -- an
+    immediate single query would falsely report those as a failed write.
+
+    Note: the delay is read from the module global (not a default
+    parameter) so tests can shrink it via monkeypatch; a default parameter
+    value is bound once at function-definition time and can't be patched.
+    """
+    value = expected_value
+    for attempt in range(attempts):
+        (value,) = osc.query(address, correlation_id=correlation_id)
+        if value == expected_value:
+            if attempt > 0:
+                diagnostics.log_watchdog(
+                    "readback_settled_after_retry",
+                    {"address": address, "attempts": attempt + 1},
+                    correlation_id=correlation_id,
+                )
+            return value
+        time.sleep(READBACK_RETRY_DELAY_SEC)
+    return value
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -132,8 +177,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Writing {block_addr} = {args.block_value} ...")
             osc.send(block_addr, args.block_value, correlation_id=correlation_id)
 
-        (new_channel_value,) = osc.query(channel_addr, correlation_id=correlation_id)
-        (new_block_value,) = osc.query(block_addr, correlation_id=correlation_id)
+        new_channel_value = _query_until_match(osc, channel_addr, args.value, diagnostics, correlation_id)
+        expected_block_value = args.block_value if not args.skip_block_flip else original_block_value
+        new_block_value = _query_until_match(osc, block_addr, expected_block_value, diagnostics, correlation_id)
         print(
             f"After:  {channel_addr} = {new_channel_value} "
             f"({addresses.decode_userrout_value(new_channel_value)}), "
