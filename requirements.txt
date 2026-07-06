@@ -9,4 +9,13 @@ scipy>=1.11
 numpy>=1.26
 onnxruntime>=1.17
 mido>=1.3
+# python-rtmidi only ships prebuilt wheels for Python 3.8-3.12 (win_amd64,
+# manylinux, macOS). On a newer/older interpreter, pip falls back to a
+# source build that needs a C++ compiler (MSVC/MinGW/clang) on PATH. If
+# install fails here: either use Python 3.8-3.12 for this project, install
+# a C++ compiler (Windows: "Build Tools for Visual Studio", C++ workload),
+# or comment out this line and mido above -- MIDI is not yet implemented
+# in this codebase (app/midi/service.py is a stub), so nothing currently
+# depends on it except the optional MIDI listing in
+# `python -m app.tools.list_devices`, which degrades gracefully without it.
 python-rtmidi>=1.5
