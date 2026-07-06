@@ -184,9 +184,8 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   Initially assumed to be one generic "User" option; **cross-checking the
   console's own Setup → Routing → Inputs matrix screen showed "User In" is
   itself split into the same four 8-channel banks as every other source
-  type** (1-8/9-16/17-24/25-32), each a separate raw value: `20`/`21`/`22` =
-  "User In 1-8"/"9-16"/"17-24" (all three confirmed), `23` = "User In
-  25-32" (inferred by the same sequential pattern, not yet tested).
+  type** (1-8/9-16/17-24/25-32), each a separate raw value: `20`/`21`/`22`/`23`
+  = "User In 1-8"/"9-16"/"17-24"/"25-32", all four directly confirmed.
   `app.osc.addresses.user_in_block_value(channel)` computes the correct
   value for a given channel's own block. **This match matters, not just
   labeling**: a block set to the *wrong* User In bank (e.g. block 9-16 set
