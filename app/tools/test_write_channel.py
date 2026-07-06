@@ -45,48 +45,18 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 
 from app.config import load_config
 from app.diagnostics.logger import DiagnosticsLogger
 from app.osc import addresses
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 
+# The settle-delay retry loop itself lives on OscConnection.query_until_match()
+# (shared with app.tools.test_write_routing); these are just this CLI's
+# chosen attempts/delay, read fresh at call time so tests can shrink
+# READBACK_RETRY_DELAY_SEC via monkeypatch.
 READBACK_RETRY_ATTEMPTS = 5
 READBACK_RETRY_DELAY_SEC = 0.3
-
-
-def _query_until_match(
-    osc: OscConnection,
-    address: str,
-    expected_value: int,
-    diagnostics: DiagnosticsLogger,
-    correlation_id: str,
-    attempts: int = READBACK_RETRY_ATTEMPTS,
-) -> int:
-    """Query address up to `attempts` times, pausing READBACK_RETRY_DELAY_SEC
-    between tries, until it reads back as expected_value or attempts run
-    out. Some writes (confirmed: block-routing changes) take a moment to
-    settle on the console before a subsequent read reflects them -- an
-    immediate single query would falsely report those as a failed write.
-
-    Note: the delay is read from the module global (not a default
-    parameter) so tests can shrink it via monkeypatch; a default parameter
-    value is bound once at function-definition time and can't be patched.
-    """
-    value = expected_value
-    for attempt in range(attempts):
-        (value,) = osc.query(address, correlation_id=correlation_id)
-        if value == expected_value:
-            if attempt > 0:
-                diagnostics.log_watchdog(
-                    "readback_settled_after_retry",
-                    {"address": address, "attempts": attempt + 1},
-                    correlation_id=correlation_id,
-                )
-            return value
-        time.sleep(READBACK_RETRY_DELAY_SEC)
-    return value
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -189,9 +159,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Writing {block_addr} = {args.block_value} ...")
             osc.send(block_addr, args.block_value, correlation_id=correlation_id)
 
-        new_channel_value = _query_until_match(osc, channel_addr, args.value, diagnostics, correlation_id)
+        new_channel_value = osc.query_until_match(
+            channel_addr, args.value, attempts=READBACK_RETRY_ATTEMPTS,
+            delay_sec=READBACK_RETRY_DELAY_SEC, correlation_id=correlation_id,
+        )
         expected_block_value = args.block_value if not args.skip_block_flip else original_block_value
-        new_block_value = _query_until_match(osc, block_addr, expected_block_value, diagnostics, correlation_id)
+        new_block_value = osc.query_until_match(
+            block_addr, expected_block_value, attempts=READBACK_RETRY_ATTEMPTS,
+            delay_sec=READBACK_RETRY_DELAY_SEC, correlation_id=correlation_id,
+        )
         print(
             f"After:  {channel_addr} = {new_channel_value} "
             f"({addresses.decode_userrout_value(new_channel_value)}), "

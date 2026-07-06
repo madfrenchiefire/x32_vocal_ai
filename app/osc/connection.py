@@ -226,6 +226,34 @@ class OscConnection:
                 if q in waiters:
                     waiters.remove(q)
 
+    def query_until_match(
+        self,
+        address: str,
+        expected_value: Any,
+        attempts: int = 5,
+        delay_sec: float = 0.3,
+        correlation_id: str | None = None,
+    ) -> Any:
+        """Query address repeatedly, pausing delay_sec between tries, until
+        it reads back as expected_value or attempts run out. Some writes
+        (confirmed: block-routing changes) take a moment to settle on the
+        console before a subsequent read reflects them -- an immediate
+        single query would falsely report those as a failed write. Returns
+        the last value read, whether or not it matched."""
+        value = expected_value
+        for attempt in range(attempts):
+            (value,) = self.query(address, correlation_id=correlation_id)
+            if value == expected_value:
+                if attempt > 0:
+                    self._diagnostics.log_watchdog(
+                        "readback_settled_after_retry",
+                        {"address": address, "attempts": attempt + 1},
+                        correlation_id=correlation_id,
+                    )
+                return value
+            time.sleep(delay_sec)
+        return value
+
     def query_many(
         self,
         addresses_: list[str],

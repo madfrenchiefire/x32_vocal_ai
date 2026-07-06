@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -69,6 +70,50 @@ def test_query_many_returns_none_for_unanswered_addresses(fake_x32, diagnostics,
         assert results["/foo"] == (1, 2)
         assert results["/bar"] == ("baz",)
         assert results["/missing"] is None
+    finally:
+        osc.close()
+
+
+def test_query_until_match_returns_immediately_when_already_correct(fake_x32, diagnostics, app_state):
+    fake_x32.extra_responses["/foo"] = (5,)
+    osc = make_connection(fake_x32, diagnostics, app_state)
+    osc.connect()
+    try:
+        start = time.monotonic()
+        value = osc.query_until_match("/foo", 5, attempts=5, delay_sec=0.2)
+        assert value == 5
+        assert time.monotonic() - start < 0.2  # no retry delay needed
+    finally:
+        osc.close()
+
+
+def test_query_until_match_gives_up_after_attempts_exhausted(fake_x32, diagnostics, app_state):
+    fake_x32.extra_responses["/foo"] = (0,)
+    osc = make_connection(fake_x32, diagnostics, app_state)
+    osc.connect()
+    try:
+        value = osc.query_until_match("/foo", 5, attempts=3, delay_sec=0.05)
+        assert value == 0  # never settled -- last value seen, not the expected one
+    finally:
+        osc.close()
+
+
+def test_query_until_match_retries_through_a_settling_write(fake_x32, diagnostics, app_state):
+    # Reproduces the real-hardware finding: a value that's stale on the
+    # first read or two, then settles to the expected value shortly after,
+    # without any other action taken.
+    fake_x32.extra_responses["/foo"] = (0,)
+    osc = make_connection(fake_x32, diagnostics, app_state)
+    osc.connect()
+    try:
+        def settle_after_delay():
+            time.sleep(0.1)
+            fake_x32.extra_responses["/foo"] = (5,)
+
+        threading.Thread(target=settle_after_delay, daemon=True).start()
+
+        value = osc.query_until_match("/foo", 5, attempts=10, delay_sec=0.05)
+        assert value == 5
     finally:
         osc.close()
 

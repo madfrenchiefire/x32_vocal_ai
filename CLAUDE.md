@@ -196,7 +196,11 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   real hardware before correcting it. `rtaea`/`rtina`/`rout1`/`rout5` still
   carry only one inferred generic `"USER"` placeholder each — given the
   rtgin correction, they likely also need 4 distinct per-bank entries, not
-  yet tested.
+  yet tested. Use `python -m app.tools.test_write_routing --console <ip>
+  --address <routing address> --value <candidate>` to test any of these
+  (e.g. `/config/routing/CARD/9-16`) without writing new code per block
+  type, then check the console's routing matrix screen (the tab matching
+  the address) for which column lit up.
 - **`userrout/in`/`userrout/out` value semantics — confirmed for all four
   source families (2026-07-06, real hardware, firmware 4.13).** A channel
   assigned to Local Analog In 1 read back `1`; AES50-A In 2 read back `34`;

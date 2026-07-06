@@ -287,6 +287,14 @@ ROUTING_GROUPS: dict[str, list[tuple[str, str]]] = {
     "play": [(a, "rtgin") for a in ROUTING_PLAY_BLOCKS] + [(ROUTING_PLAY_AUX, "rtina")],
 }
 
+# Reverse lookup: individual routing address -> its decode table name, for
+# tools that take an arbitrary address on the command line rather than
+# already knowing which group/table it belongs to (see
+# app.tools.test_write_routing).
+ROUTING_ADDRESS_TABLE: dict[str, str] = {
+    addr: table for pairs in ROUTING_GROUPS.values() for addr, table in pairs
+}
+
 # Bulk fallback address per group -- used by app.osc.routing_snapshot only
 # when one or more individual queries in the group time out.
 ROUTING_GROUP_BULK_ADDR: dict[str, str] = {
