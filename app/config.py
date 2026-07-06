@@ -27,13 +27,22 @@ class AppConfig:
 
     # --- MIDI (Phase 2, not yet implemented) ---
     midi_channel: int = 16
-    midi_port_name: str | None = None
+    # Port names as reported by app.midi.devices.list_midi_input_ports() /
+    # list_midi_output_ports() (mido). None = not yet chosen -- the MIDI
+    # service must not guess a device, per the device-selection requirement.
+    midi_input_port: str | None = None
+    midi_output_port: str | None = None
 
     # --- Audio engine (Phase 3+, not yet implemented) ---
     audio_sample_rate: int = 48000
     audio_block_size: int = 128
     max_notches_per_channel: int = 12
     notch_depth_db: float = -12.0
+    # Device names as reported by app.audio.devices.list_input_devices() /
+    # list_output_devices() (sounddevice). None = not yet chosen -- the
+    # audio engine must not assume "the X-USB card" is the only option.
+    audio_input_device: str | None = None
+    audio_output_device: str | None = None
 
     # --- Diagnostics ---
     ring_buffer_size: int = 10_000

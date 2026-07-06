@@ -19,7 +19,14 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 ## Architecture — three services, one Flask/WebSocket backend
 
 ### 1. Audio engine
-- `sounddevice` (PortAudio) with the Behringer X-USB ASIO driver, 48 kHz,
+- **Device selection is user-configurable, not hardcoded.** The app must not assume
+  the X-USB card is the only option, and input/output need not be the same device.
+  Enumerate available PortAudio devices (`app/audio/devices.py`, implemented) and
+  let the user pick which is the input device and which is the output device;
+  persist the choice (`AppConfig.audio_input_device` / `audio_output_device`, by
+  device name). `None` = not yet chosen — the audio engine must not silently guess.
+  `python -m app.tools.list_devices` prints what's available on the current PC.
+- `sounddevice` (PortAudio), expected to be the Behringer X-USB ASIO driver, 48 kHz,
   64–128 sample buffer. Target total round trip ≤ ~10 ms; measure it (loopback click test).
 - Audio callback does ONLY per-channel biquad notch filtering
   (`scipy.signal` SOS with persistent state, preallocated buffers, no allocation in callback).
@@ -80,8 +87,16 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   or empirically (assign one on the desk, query the parameter, copy the format).
 
 ### 3. MIDI service
-- MIDI rides the X-USB card (enable "MIDI via X-USB card" in Setup → MIDI). Use `mido`
-  + `python-rtmidi` on a background thread; fully isolated from the audio callback.
+- **Port selection is user-configurable, not hardcoded.** The app must not assume
+  the X-USB card is the only MIDI interface, and in/out need not be the same port.
+  Enumerate available MIDI ports (`app/midi/devices.py`, implemented) and let the
+  user pick which is the input port and which is the output port; persist the
+  choice (`AppConfig.midi_input_port` / `midi_output_port`, by port name as
+  reported by `mido`). `None` = not yet chosen — the MIDI service must not
+  silently guess. `python -m app.tools.list_devices` prints what's available.
+- Expected to ride the X-USB card (enable "MIDI via X-USB card" in Setup → MIDI).
+  Use `mido` + `python-rtmidi` on a background thread; fully isolated from the
+  audio callback.
 - One dedicated MIDI channel (default 16, configurable). Buttons = CC toggle (127/0),
   encoders = absolute CC 0–127.
 - **Slot model** (8 channel slots max on hardware; slots stay stable for the session):
@@ -99,6 +114,12 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   the fader surface). System arm/disarm lives in the web UI only. Do not revisit.
 
 ## Web UI (Flask + WebSockets)
+- **Device setup panel**: dropdowns for audio input device, audio output device,
+  MIDI input port, MIDI output port (list from `app/audio/devices.py` and
+  `app/midi/devices.py`), a "rescan devices" button, and a persisted selection
+  (`AppConfig`). Shown before/alongside the routing panel — the rest of the app
+  depends on these being chosen. Not yet implemented (Web UI beyond the
+  diagnostics export endpoint is a later phase).
 - Routing panel: 32-channel selection grid (pull real channel names/colors via OSC),
   snapshot status, Save snapshot / Apply routing / Restore buttons, per-channel rows
   showing card-out slot, active notch count, AI toggle, assigned hardware controls.
