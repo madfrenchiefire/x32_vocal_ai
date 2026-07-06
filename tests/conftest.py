@@ -16,7 +16,14 @@ class FakeX32:
     version and to any address pre-registered in extra_responses. Anything
     else gets no reply at all, mirroring how a real console ignores an
     unrecognized OSC address -- used to exercise the "unverified address"
-    path without needing real hardware."""
+    path without needing real hardware.
+
+    Also supports real get/set semantics matching the X32 OSC protocol: a
+    message with args is a "set" -- it's stored into extra_responses and
+    echoed back (mirroring the console confirming a write) -- and a
+    message with no args is a "get", answered from extra_responses if
+    present. This lets write-path tests just query() before and after a
+    send() and see the fake console's state actually change."""
 
     def __init__(self, version: str = "4.06-16") -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -45,6 +52,11 @@ class FakeX32:
             reply_args = None
             if msg.address == "/xinfo":
                 reply_args = ("127.0.0.1", "TESTX32", "X32", self.version)
+            elif msg.params:
+                # A "set": store it, then echo back the new value (mirrors
+                # a real console confirming a write).
+                self.extra_responses[msg.address] = tuple(msg.params)
+                reply_args = tuple(msg.params)
             elif msg.address in self.extra_responses:
                 reply_args = self.extra_responses[msg.address]
             if reply_args is not None:
