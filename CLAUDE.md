@@ -158,16 +158,34 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   bulk address itself replies live to a bare query (vs. only appearing in
   scene-file serialization) is the one part of this still unconfirmed
   against real hardware.
-- **Value semantics for userrout and routing enums — confirmed from the same
-  Maillot source**, not yet cross-checked against live hardware. Each
-  routing block's raw integer decodes to a token (e.g. `CARD1-8`) via the
-  enum tables reproduced verbatim in `app/osc/addresses.py`
-  (`ROUTING_ENUM_TABLES`; `decode_routing_value()`). `userrout/in` and
-  `userrout/out` integers still have no known decode table (which
-  physical/AES50/local source a given value selects) — every scene
-  inspected so far has them all zero. Confirm both against a real console
-  (set a known source on the desk, query, note the value) before trusting
-  the decoded token / userrout meaning in a write path.
+- **Block-routing enum values — address shapes AND enum tables cross-checked
+  against two real consoles (2026-07-06)**: a live snapshot from a console
+  running firmware 4.13 decoded via `ROUTING_ENUM_TABLES` reproduced the
+  exact same tokens, in the same order, as the "Roxu" scene file dump
+  (`AN1-8`/`AES50A OUT1-8.../P169-16`/`CARD1-8...`/etc. — see git history
+  for the full comparison). Confirms both the addresses and the decode
+  tables for the six routing-block enums.
+- **"User In"/"User Out" enum value — confirmed on `rtgin` only.** Setting a
+  channel block's source to "User In" on the console (Setup → Routing)
+  changed `/config/routing/IN/1-8` from `0` (`AN1-8`) to `20` — one past
+  `rtgin`'s 20 named physical sources, matching a previously-unlabeled
+  trailing `""` entry in Maillot's `XRtgin[]` array (turns out not to be a
+  mere end-of-array sentinel). Added as `"USER"` in `ROUTING_ENUM_TABLES`.
+  The same trailing-entry pattern exists in `rtaea`/`rtina`/`rout1`/`rout5`
+  and is added there too, but **only inferred by analogy, not independently
+  confirmed** — test setting an AES50A/AES50B/OUT/AUX block to User
+  In/Out and check the raw value lands on that same trailing index before
+  trusting it.
+- **`userrout/in`/`userrout/out` value semantics — hypothesis, not yet
+  confirmed.** With channels 1-8 set to User In and individually assigned
+  to Card 1..8 (1:1) on real hardware, `/config/userrout/in` read back as
+  129..136, i.e. `value = 128 + card_channel`. 128 = 32 (Local Analog) + 48
+  (AES50-A) + 48 (AES50-B) — the same source ordering as the block-routing
+  tables — suggesting a flat 1-indexed enumeration (1-32 Local, 33-80
+  AES50-A, 81-128 AES50-B, 129-160 Card, unknown beyond). Documented in
+  `app/osc/addresses.py` but **no decode function added yet** — only one
+  source family (Card) has been tested; a Local Analog and an AES50-A/B
+  assignment need to confirm the boundaries before this is trusted.
 
 ## Diagnostics event schema
 

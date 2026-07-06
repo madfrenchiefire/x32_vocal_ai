@@ -59,6 +59,28 @@ def userrout_out_addr(channel: int) -> str:
 ALL_USERROUT_IN = [userrout_in_addr(ch) for ch in range(1, NUM_USERROUT_IN + 1)]
 ALL_USERROUT_OUT = [userrout_out_addr(ch) for ch in range(1, NUM_USERROUT_OUT + 1)]
 
+# --- userrout value semantics: HYPOTHESIS, not yet confirmed enough to decode --
+#
+# Real-hardware test 2026-07-06: with channels 1-8's block source set to
+# "User In" (confirmed rtgin index 20, see ROUTING_ENUM_TABLES), and each of
+# those 8 channels individually assigned to Card 1..Card 8 (1:1) via the
+# console's User In screen, /config/userrout/in read back as:
+#   channel 1->8: 129, 130, 131, 132, 133, 134, 135, 136
+# i.e. value = 128 + card_channel_number. 128 == 32 (Local Analog 1-32) +
+# 48 (AES50-A 1-48) + 48 (AES50-B 1-48) -- the same source ordering already
+# confirmed in the block-routing enum tables above (AN, then A/AES50-A,
+# then B/AES50-B, then CARD). Working hypothesis: userrout is a flat,
+# 1-indexed source enumeration --
+#   1-32    Local Analog 1-32
+#   33-80   AES50-A 1-48
+#   81-128  AES50-B 1-48
+#   129-160 Card 1-32
+#   (unknown beyond 160 -- more sources likely follow, e.g. AES50 P16 sends)
+# This is a single data family (only Card channels tested) -- the boundaries
+# (does Local start at 0 or 1? is there a "none/off" value?) are not yet
+# confirmed. No decode function is provided until a Local Analog and an
+# AES50-A/B assignment are also tested and match this arithmetic.
+
 # --- userrout: bulk (scene-dump form, untested for live bare-query reply) -
 
 USERROUT_IN = "/config/userrout/in"
@@ -129,34 +151,50 @@ ROUTING_PLAY = "/config/routing/PLAY"
 
 # --- enum value tables (X32.c, verbatim strings minus the leading space) -
 
+# Note on the trailing "User" entry in each list below: Maillot's X32.c
+# source terminates each of these string arrays with an empty "" (e.g.
+# XRtgin[] = {..., "CARD25-32", ""}), which reads like an end-of-array
+# sentinel. It isn't -- CONFIRMED 2026-07-06 against real hardware: setting
+# a block's source to "User In"/"User Out" on the console changed its raw
+# value from a physical-source index to exactly one past the last named
+# entry (e.g. /config/routing/IN/1-8 went from 0 ("AN1-8") to 20, one past
+# rtgin's 20 named entries). Added here as "USER" for rtgin (directly
+# confirmed) and, by the same pattern, for rtaea/rtina/rout1/rout5 (not yet
+# independently confirmed on real hardware -- do the same test on an
+# AES50A/AES50B/OUT/AUX block to verify before relying on it).
 ROUTING_ENUM_TABLES: dict[str, list[str]] = {
     "routswitch": ["REC", "PLAY"],
     "rtgin": [
         "AN1-8", "AN9-16", "AN17-24", "AN25-32", "A1-8", "A9-16", "A17-24", "A25-32",
         "A33-40", "A41-48", "B1-8", "B9-16", "B17-24", "B25-32", "B33-40", "B41-48",
         "CARD1-8", "CARD9-16", "CARD17-24", "CARD25-32",
+        "USER",  # confirmed: index 20, see note above
     ],
     "rtaea": [
         "AN1-8", "AN9-16", "AN17-24", "AN25-32", "A1-8", "A9-16", "A17-24", "A25-32",
         "A33-40", "A41-48", "B1-8", "B9-16", "B17-24", "B25-32", "B33-40", "B41-48",
         "CARD1-8", "CARD9-16", "CARD17-24", "CARD25-32", "OUT1-8", "OUT9-16",
         "P161-8", "P169-16", "AUX1-6/Mon", "AuxIN1-6/TB",
+        "USER",  # inferred by pattern, not yet independently confirmed
     ],
     "rtina": [
         "AUX1-4", "AN1-2", "AN1-4", "AN1-6", "A1-2", "A1-4", "A1-6",
         "B1-2", "B1-4", "B1-6", "CARD1-2", "CARD1-4", "CARD1-6",
+        "USER",  # inferred by pattern, not yet independently confirmed
     ],
     "rout1": [
         "AN1-4", "AN9-12", "AN17-20", "AN25-28", "A1-4", "A9-12", "A17-20", "A25-28",
         "A33-36", "A41-44", "B1-4", "B9-12", "B17-20", "B25-28", "B33-36", "B41-44",
         "CARD1-4", "CARD9-12", "CARD17-20", "CARD25-28", "OUT1-4", "OUT9-12",
         "P161-4", "P169-12", "AUX/CR", "AUX/TB",
+        "USER",  # inferred by pattern, not yet independently confirmed
     ],
     "rout5": [
         "AN5-8", "AN13-16", "AN21-24", "AN29-32", "A5-8", "A13-16", "A21-24", "A29-32",
         "A37-40", "A45-48", "B5-8", "B13-16", "B21-24", "B29-32", "B37-40", "B45-48",
         "CARD5-8", "CARD13-16", "CARD21-24", "CARD29-32", "OUT5-8", "OUT13-16",
         "P165-8", "P1613-16", "AUX/CR", "AUX/TB",
+        "USER",  # inferred by pattern, not yet independently confirmed
     ],
 }
 
