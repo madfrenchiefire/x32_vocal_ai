@@ -201,14 +201,23 @@ ROUTING_PLAY = "/config/routing/PLAY"
 #     already are (6 banks of 8: 1-8/9-16/.../41-48). Only the first bank
 #     (26 = "User Out 1-8") is directly confirmed; 27-31 are inferred by
 #     the same sequential pattern.
-#   - rtina (IN/AUX, PLAY/AUX) and rout1/rout5 (OUT, physical analog
-#     outputs -- also a "send" direction like rtaea): not yet tested at
-#     all. By the same input-vs-output reasoning rtina is more likely User
-#     In and rout1/rout5 more likely User Out, but that's a guess by
+#   - rout1 (OUT, physical analog outputs -- also a "send" direction like
+#     rtaea): confirmed 2026-07-06 -- /config/routing/OUT/1-4 set to 26
+#     (one past rout1's 26 named sources) displayed as "User Out 1-8" on
+#     the console's "XLR" routing matrix tab. Notably the OUT block itself
+#     is 4-channels-wide (1-4/5-8/9-12/13-16) but still pulled from an
+#     8-wide User Out bank -- User Out banking is fixed at 8 regardless of
+#     the consuming block's own width. rout5 shares the same table/pool by
+#     construction (it's the other half of the same 4-wide OUT blocks) but
+#     hasn't been independently written to; treat its bank entries as
+#     inferred, not confirmed, until tested directly the same way.
+#   - rtina (IN/AUX, PLAY/AUX): not yet tested at all -- neither the
+#     address nor a "User" value has been tried. By the same input-vs-
+#     output reasoning it's more likely User In, but that's a guess by
 #     analogy, not a confirmed value -- test the same way (write a
 #     candidate value with app.tools.test_write_routing, check which
 #     column lights up on the matching routing matrix tab) before trusting
-#     these.
+#     it.
 #
 # IMPORTANT for routing writes: which User bank a block pulls from must
 # match the per-channel userrout slot you actually configured, or the
@@ -253,14 +262,24 @@ ROUTING_ENUM_TABLES: dict[str, list[str]] = {
         "A33-36", "A41-44", "B1-4", "B9-12", "B17-20", "B25-28", "B33-36", "B41-44",
         "CARD1-4", "CARD9-12", "CARD17-20", "CARD25-28", "OUT1-4", "OUT9-12",
         "P161-4", "P169-12", "AUX/CR", "AUX/TB",
-        "USEROUT",  # guessed direction by analogy (rout1 is on the OUT/analog-output block) -- untested, not even address-confirmed
+        "USEROUT1-8",    # confirmed: index 26
+        "USEROUT9-16",   # inferred by pattern, not yet independently confirmed
+        "USEROUT17-24",  # inferred by pattern, not yet independently confirmed
+        "USEROUT25-32",  # inferred by pattern, not yet independently confirmed
+        "USEROUT33-40",  # inferred by pattern, not yet independently confirmed
+        "USEROUT41-48",  # inferred by pattern, not yet independently confirmed
     ],
     "rout5": [
         "AN5-8", "AN13-16", "AN21-24", "AN29-32", "A5-8", "A13-16", "A21-24", "A29-32",
         "A37-40", "A45-48", "B5-8", "B13-16", "B21-24", "B29-32", "B37-40", "B45-48",
         "CARD5-8", "CARD13-16", "CARD21-24", "CARD29-32", "OUT5-8", "OUT13-16",
         "P165-8", "P1613-16", "AUX/CR", "AUX/TB",
-        "USEROUT",  # guessed direction by analogy (rout5 is on the OUT/analog-output block) -- untested, not even address-confirmed
+        "USEROUT1-8",    # inferred by pattern (rout1's twin table) -- not yet independently confirmed
+        "USEROUT9-16",   # inferred by pattern, not yet independently confirmed
+        "USEROUT17-24",  # inferred by pattern, not yet independently confirmed
+        "USEROUT25-32",  # inferred by pattern, not yet independently confirmed
+        "USEROUT33-40",  # inferred by pattern, not yet independently confirmed
+        "USEROUT41-48",  # inferred by pattern, not yet independently confirmed
     ],
 }
 

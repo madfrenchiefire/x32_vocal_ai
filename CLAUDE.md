@@ -209,10 +209,18 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   `userrout/out` + CARD block routing to cherry-pick arbitrary channels
   onto Card outs") rather than contradicting it. Only `rtaea`'s first bank
   (`26` = "User Out 1-8") is directly confirmed; `27`-`31` are inferred by
-  the same pattern. `rtina` (IN/AUX, PLAY/AUX) and `rout1`/`rout5` (OUT,
-  physical analog outputs) are still untested — by the same input-vs-output
-  reasoning, `rtina` is more likely User In and `rout1`/`rout5` more likely
-  User Out, but that's a guess by analogy, not confirmed. Use
+  the same pattern.
+  `rout1` (OUT, physical analog outputs) is **also confirmed**:
+  `/config/routing/OUT/1-4` set to `26` (one past `rout1`'s 26 named
+  sources) displayed as "User Out 1-8" on the console's "XLR" routing
+  matrix tab — notably the `OUT` block itself is 4-channels-wide but still
+  pulled from an 8-wide User Out bank, confirming User Out banking is
+  fixed at 8 regardless of the consuming block's own width. `rout5`
+  (the other half of the same 4-wide `OUT` blocks) is assumed to share the
+  pool/table by construction but hasn't been independently written to.
+  `rtina` (`IN`/`AUX`, `PLAY`/`AUX`) is the only address family with zero
+  data so far — by the same input-vs-output reasoning it's more likely
+  User In, but that's a guess by analogy, not confirmed. Use
   `python -m app.tools.test_write_routing --console <ip> --address
   <routing address> --value <candidate>` to test any of these without
   writing new code per block type, then check the console's routing matrix

@@ -34,6 +34,17 @@ def test_decode_routing_value_user_out_confirmed_on_rtaea():
     assert addresses.decode_routing_value("rtaea", 31) == "USEROUT41-48"
 
 
+def test_decode_routing_value_user_out_confirmed_on_rout1():
+    # Confirmed 2026-07-06 against real hardware: /config/routing/OUT/1-4
+    # set to 26 (one past rout1's 26 named physical sources) showed as
+    # "User Out 1-8" on the console's "XLR" routing matrix tab -- note the
+    # OUT block itself is 4-channels-wide but still pulled from an 8-wide
+    # User Out bank, confirming User Out banking is fixed at 8 regardless
+    # of the consuming block's own width. rout5 (untested) is assumed to
+    # share the same pool/table by construction, not independently confirmed.
+    assert addresses.decode_routing_value("rout1", 26) == "USEROUT1-8"
+
+
 def test_user_in_block_value_matches_channel_position():
     # Each channel's containing 8-channel block must pull from the User In
     # bank matching that channel's own position, or the console uses a
