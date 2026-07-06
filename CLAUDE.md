@@ -176,20 +176,20 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   confirmed** — test setting an AES50A/AES50B/OUT/AUX block to User
   In/Out and check the raw value lands on that same trailing index before
   trusting it.
-- **`userrout/in`/`userrout/out` value semantics — confirmed for Local Analog,
-  AES50-A, and Card (2026-07-06, real hardware, firmware 4.13).** A channel
+- **`userrout/in`/`userrout/out` value semantics — confirmed for all four
+  source families (2026-07-06, real hardware, firmware 4.13).** A channel
   assigned to Local Analog In 1 read back `1`; AES50-A In 2 read back `34`;
-  Card 1-8 (1:1) read back `129`-`136`. All three fit a single flat,
-  1-indexed enumeration: `value = range_start + (channel - 1)`, with ranges
-  1-32 Local Analog, 33-80 AES50-A, 81-128 AES50-B, 129-160 Card (same
-  source ordering as the block-routing tables). Implemented as
+  AES50-B In 3/4 read back `83`/`84`; Card 1-8 (1:1) read back `129`-`136`.
+  All four fit a single flat, 1-indexed enumeration:
+  `value = range_start + (channel - 1)`, with ranges 1-32 Local Analog,
+  33-80 AES50-A, 81-128 AES50-B, 129-160 Card (same source ordering as the
+  block-routing tables). Implemented as
   `app.osc.addresses.decode_userrout_value()` /
   `RoutingSnapshot.decode_userrout_in()` / `.decode_userrout_out()`.
-  AES50-B's range is arithmetic-implied (32+48+48 lands exactly on Card's
-  start) but not independently tested — assign a channel to an AES50-B
-  input to confirm directly. Every untouched channel across three consoles
-  now reads `0`; decoded as `"UNSET(0)"` rather than assumed to mean "off"
-  since that specific meaning hasn't been separately confirmed.
+  Every untouched channel across three consoles now reads `0`; decoded as
+  `"UNSET(0)"` rather than assumed to mean "off" since that specific
+  meaning hasn't been separately confirmed. What lies beyond index 160
+  (more AES50 sends, USB, etc.) is still unknown.
 
 ## Diagnostics event schema
 
