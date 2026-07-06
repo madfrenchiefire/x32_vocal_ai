@@ -36,32 +36,40 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 - `python-osc`. Send `/xremote` and refresh every ~8 s to receive state changes.
   Subscribe to `/meters` (binary blobs) for live channel meters.
 - On connect: query `/xinfo`, require firmware 4.0+ (User In/Out routing).
-- **Confirmed address shapes** (from a real console scene file, see "Open items to
-  verify" below): `/config/userrout/in` and `/config/userrout/out` are each a
-  *single* OSC address carrying the whole array (32 values for `in`, 48 for
-  `out`) — there is no per-channel `/config/userrout/in/NN` sub-address. The
-  six block-routing nodes (`/config/routing/IN`, `/AES50A`, `/AES50B`,
-  `/CARD`, `/OUT`, `/PLAY`) are likewise each a single address carrying an
-  array of per-8-channel-block source tokens (e.g. `AN1-8`, `AUX1-4`).
+- **Confirmed address shapes** (from Patrick-Gilles Maillot's own reverse-engineered
+  parameter table and enum tables, github.com/pmaillot/X32-Behringer,
+  `X32CfgMain.h` / `X32.c` — see "Open items to verify" below): each channel has
+  its own individually get+set-able address —
+  `/config/userrout/in/01`..`/32` and `/config/userrout/out/01`..`/48` — flagged
+  `F_XET` (get+set) in that table. The six block-routing nodes are likewise
+  individually addressable per 8-channel (or per-4/AUX) block: `/config/routing/IN/1-8`
+  (…`/9-16`, `/17-24`, `/25-32`, `/AUX`), `/AES50A/1-8`…`/41-48` (6 blocks),
+  `/AES50B/1-8`…`/41-48` (6), `/CARD/1-8`…`/25-32` (4), `/OUT/1-4`…`/13-16` (4),
+  `/PLAY/1-8`…`/25-32`+`/AUX` (5). Each block's raw integer decodes to a source
+  token (e.g. `AN1-8`, `CARD1-8`, `P161-8`) via the enum tables reproduced in
+  `app/osc/addresses.py` (`ROUTING_ENUM_TABLES`), also lifted from Maillot's source.
+  A *bulk* form of each of these also exists (`/config/userrout/in`,
+  `/config/routing/CARD`, etc., carrying the whole array/group in one address) —
+  confirmed to appear in `.scn` scene file dumps, but unconfirmed whether a live
+  bare OSC query on the bulk address replies at all; `app/osc/routing_snapshot.py`
+  queries individually first and only falls back to the bulk address per group if
+  one or more individual queries in that group time out.
 - **Routing automation** (the "Apply" button):
-  1. Snapshot: read `/config/userrout/in`, `/config/userrout/out`, and the six
-     `/config/routing/*` block nodes above in full. Store as named JSON snapshot.
-  2. For each selected channel, mutate its index in the `userrout/in` array to
-     the matching Card return, then write the *entire* array back in one
-     message. CRITICAL: since it's one array covering all 32 channels,
-     non-selected channels' indices must be carried over unchanged from the
-     snapshot in that same write so they are unaffected.
-  3. Use `userrout/out` + the CARD block routing to cherry-pick arbitrary
-     selected channels' preamps onto Card outs (mutate the relevant indices in
-     the 48-element array, write the whole array back).
-  4. Flip block routing (`/config/routing/*`) to User In / User Out last,
+  1. Snapshot: read every individual `/config/userrout/in/NN`, `/config/userrout/out/NN`,
+     and the block-routing addresses above. Store as named JSON snapshot.
+  2. For each selected channel, write its `/config/userrout/in/NN` address to the
+     matching Card return. Each channel's address is independent — no need to touch
+     other channels' addresses in the same block.
+  3. Use `/config/userrout/out/NN` + the CARD block routing to cherry-pick arbitrary
+     selected channels' preamps onto Card outs.
+  4. Flip block routing (`/config/routing/*/<block>`) to User In / User Out last,
      after everything is staged.
   - Pace writes (a few ms between messages, UDP); read back key values to confirm
     before reporting success.
-- **Per-channel bypass/restore** = read the current `userrout/in` array, rewrite
-  just that one channel's index back to its snapshot value, write the whole
-  array back (still a single message; block stays in User mode; other
-  channels unaffected). Implemented as a toggle (bypass ↔ re-insert).
+- **Per-channel bypass/restore** = write that one channel's `/config/userrout/in/NN`
+  (or `/out/NN`) address back to its snapshot value — a genuinely single-value
+  write, no read-modify-write of a larger array needed. Implemented as a toggle
+  (bypass ↔ re-insert).
 - **Full restore** = replay the snapshot (web UI + crash watchdog; no physical button).
 - **Console feedback**: write channel scribble-strip colors/names to show per-channel
   state (inserted vs bypassed, AI active/suppressing). Restore names/colors on disengage
@@ -114,22 +122,31 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 - MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical.
 - `/meters` blob layout for the meters we need.
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
-- **Value semantics for `/config/userrout/in` and `/config/userrout/out`.**
-  Address shapes are now confirmed (2026-07-06, from a real console scene
-  file dump): each is a single address, `in` carrying 32 integer values,
-  `out` carrying 48. What each integer *means* (which physical/AES50/local
-  source a given value selects) is not yet decoded — `app/osc/addresses.py`
-  and `app/osc/routing_snapshot.py` store the raw array as-is
-  (`ROUTING_ADDRESSES_VERIFIED = True` reflects the address shape being
-  confirmed, not the value-to-source mapping). Confirm the integer→source
-  mapping against the Maillot doc or empirically (set a known source on the
-  desk, query, note the value) before using these values to drive writes.
-- **Value semantics for `/config/routing/{IN,AES50A,AES50B,CARD,OUT,PLAY}`.**
-  Addresses and their block-source tokens (e.g. `AN1-8`, `AUX1-4`, `P161-8`)
-  are confirmed from the same scene file — see `app/osc/addresses.py`. The
-  full token vocabulary (all valid values per node) isn't enumerated yet;
-  treat unfamiliar tokens as opaque strings, not an exhaustive enum, until
-  more scenes/consoles are checked.
+- **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
+  from two sources: (1) a real console scene (`.scn`) file dump, and (2)
+  Patrick-Gilles Maillot's own reverse-engineered parameter table and enum
+  string tables in github.com/pmaillot/X32-Behringer (`X32CfgMain.h`,
+  `X32.c`) — the reference implementation behind the "unofficial X32 OSC
+  Protocol" doc. Both individual per-channel/per-block addresses (flagged
+  `F_XET` = get+set in Maillot's table; e.g. `/config/userrout/in/01`,
+  `/config/routing/CARD/1-8`) and bulk parent addresses (flagged `F_FND`;
+  e.g. `/config/userrout/in`, `/config/routing/CARD`) are real nodes in the
+  parameter tree. `app/osc/addresses.py` documents both; `routing_snapshot.py`
+  queries individually first (confirmed get-able) and only falls back to the
+  bulk address per group if an individual query times out — whether the
+  bulk address itself replies live to a bare query (vs. only appearing in
+  scene-file serialization) is the one part of this still unconfirmed
+  against real hardware.
+- **Value semantics for userrout and routing enums — confirmed from the same
+  Maillot source**, not yet cross-checked against live hardware. Each
+  routing block's raw integer decodes to a token (e.g. `CARD1-8`) via the
+  enum tables reproduced verbatim in `app/osc/addresses.py`
+  (`ROUTING_ENUM_TABLES`; `decode_routing_value()`). `userrout/in` and
+  `userrout/out` integers still have no known decode table (which
+  physical/AES50/local source a given value selects) — every scene
+  inspected so far has them all zero. Confirm both against a real console
+  (set a known source on the desk, query, note the value) before trusting
+  the decoded token / userrout meaning in a write path.
 
 ## Diagnostics event schema
 
@@ -167,7 +184,7 @@ last 10,000 events, `AppConfig.ring_buffer_size`). Every event:
 
 ### Payload shape per category
 
-- `osc_tx` / `osc_rx`: `{"address": "/config/userrout/in", "args": [0, 0, ...]}`
+- `osc_tx` / `osc_rx`: `{"address": "/config/userrout/in/01", "args": [0]}`
   — the exact OSC address and argument list, no interpretation.
 - `midi_rx`: `{"raw_bytes": [176, 1, 127], "parsed": {...}}` — raw MIDI
   bytes plus whatever meaning was decoded from them.

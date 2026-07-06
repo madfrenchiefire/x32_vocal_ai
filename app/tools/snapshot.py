@@ -85,11 +85,15 @@ def main(argv: list[str] | None = None) -> int:
         state.set_snapshot(snapshot, str(snapshot_path))
         print(f"Snapshot saved: {snapshot_path}")
 
-        if not snapshot.routing_addresses_verified:
+        missing = (
+            sum(1 for v in snapshot.userrout_in if v is None)
+            + sum(1 for v in snapshot.userrout_out if v is None)
+            + sum(1 for vals in snapshot.routing.values() for v in vals if v is None)
+        )
+        if missing:
             print(
-                "NOTE: block-level routing addresses (/config/routing/IN/*, CARD output "
-                "blocks) are unverified placeholders -- see app/osc/addresses.py. "
-                "userrout/in and userrout/out (all 32 channels) are the confirmed data."
+                f"NOTE: {missing} address(es) did not reply (neither individually nor via "
+                "bulk fallback) -- see the debug bundle for which ones."
             )
 
     except FirmwareTooOldError as exc:

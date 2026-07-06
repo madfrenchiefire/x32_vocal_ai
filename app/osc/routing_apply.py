@@ -5,12 +5,15 @@ and ``/config/userrout/out`` (flipping block routing to User In/Out last,
 pacing writes, reading back to confirm) plus per-channel bypass/restore and
 full-snapshot restore.
 
-Confirmed from a real scene file (see app.osc.addresses): userrout/in and
-userrout/out are each a *single* address carrying the whole 32-/48-element
-array, not one address per channel. That means "rewrite one channel's
-userrout entry" (CLAUDE.md's per-channel bypass) is: read the array from
-the snapshot, mutate the one index for the target channel, and send the
-whole array back as one message -- still a single write, just array-shaped.
+Confirmed from Patrick-Gilles Maillot's reverse-engineered parameter table
+(see app.osc.addresses): each channel has its own individually
+get+set-able address (``/config/userrout/in/01``..``/32``,
+``/config/userrout/out/01``..``/48``, flagged ``F_XET`` in that table).
+"Rewrite one channel's userrout entry" (CLAUDE.md's per-channel bypass) is
+therefore a genuinely single-value write to that channel's own address --
+no read-modify-write of a larger array required. The same applies to the
+block-level routing addresses (``/config/routing/IN/1-8`` etc.) used when
+flipping a block to User In/Out.
 """
 from __future__ import annotations
 
