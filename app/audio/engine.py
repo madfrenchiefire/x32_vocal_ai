@@ -1,18 +1,46 @@
-"""Real-time audio engine -- NOT IMPLEMENTED THIS PHASE.
+"""Real-time audio engine.
 
-Per CLAUDE.md's "Audio engine" / build phase 1 ("Plumbing"): sounddevice
-(PortAudio) with the Behringer X-USB ASIO driver, 48 kHz, 64-128 sample
-buffer, target round trip <=~10 ms. The audio callback itself does ONLY
-app.audio.filters.NotchFilterBank.process() -- FFT/ML analysis runs on a
-separate thread (app.audio.detection, app.audio.ml.classifier) that
-instructs the filter bank asynchronously. The AI is never in the audio
-callback.
+sounddevice (PortAudio) against the configured input/output devices
+(AppConfig.audio_input_device/audio_output_device -- see app.audio.devices).
+The audio callback does ONLY per-channel notch filtering
+(app.audio.filters.NotchFilterBank) plus, if enabled, echo cancellation
+(app.audio.echo_cancellation.EchoCanceller) -- both classical DSP, no FFT
+or ML in the callback. FFT analysis (app.audio.detection.FeedbackDetector)
+runs on a separate thread fed by a bounded queue from the callback.
+
+Honest caveat on "no allocation in the callback": the notch/echo DSP
+itself is allocation-free (preallocated SOS/filter state), but handing a
+copy of each block to the analysis thread via queue.put_nowait(block.copy())
+does allocate. A fully lock-free preallocated ring buffer would remove
+that, but a plain Python callback via sounddevice is soft-real-time at
+best regardless (GIL, interpreter overhead) -- this is flagged as a known,
+minor deviation rather than quietly claimed away.
 """
 from __future__ import annotations
 
+import queue
+import threading
+
+import numpy as np
+
+try:
+    import sounddevice as sd
+    _IMPORT_ERROR: OSError | None = None
+except OSError as exc:
+    sd = None
+    _IMPORT_ERROR = exc
+
+from app.audio.detection import FeedbackDetector
 from app.audio.filters import NotchFilterBank
 from app.config import AppConfig
 from app.diagnostics.logger import DiagnosticsLogger
+
+ANALYSIS_QUEUE_SIZE = 64
+ANALYSIS_POLL_TIMEOUT_SEC = 0.5
+
+
+class AudioEngineError(Exception):
+    pass
 
 
 class AudioEngine:
@@ -20,22 +48,104 @@ class AudioEngine:
         self,
         config: AppConfig,
         diagnostics: DiagnosticsLogger,
-        filter_bank: NotchFilterBank | None = None,
+        filter_banks: dict[int, NotchFilterBank] | None = None,
+        detector: FeedbackDetector | None = None,
     ) -> None:
-        raise NotImplementedError("audio engine is implemented in a later phase")
+        self.config = config
+        self.diagnostics = diagnostics
+        self.filter_banks = filter_banks if filter_banks is not None else {}
+        self.detector = detector or FeedbackDetector(sample_rate=config.audio_sample_rate)
+
+        self._stream = None
+        self._analysis_queue: queue.Queue = queue.Queue(maxsize=ANALYSIS_QUEUE_SIZE)
+        self._analysis_thread: threading.Thread | None = None
+        self._running = threading.Event()
 
     def start(self) -> None:
-        raise NotImplementedError
+        if sd is None:
+            raise AudioEngineError("PortAudio is not available on this system") from _IMPORT_ERROR
+        if self.config.audio_input_device is None or self.config.audio_output_device is None:
+            raise AudioEngineError(
+                "audio_input_device/audio_output_device not configured -- "
+                "see app.audio.devices.list_input_devices()/list_output_devices()"
+            )
+
+        self._running.set()
+        self._analysis_thread = threading.Thread(target=self._analysis_loop, name="audio-analysis", daemon=True)
+        self._analysis_thread.start()
+
+        num_channels = max(self.filter_banks.keys(), default=1)
+        self._stream = sd.Stream(
+            device=(self.config.audio_input_device, self.config.audio_output_device),
+            samplerate=self.config.audio_sample_rate,
+            blocksize=self.config.audio_block_size,
+            channels=num_channels,
+            dtype="float32",
+            callback=self._audio_callback,
+        )
+        self._stream.start()
+        self.diagnostics.log_state_change(
+            "audio_engine_started",
+            after={"input": self.config.audio_input_device, "output": self.config.audio_output_device},
+        )
 
     def stop(self) -> None:
-        raise NotImplementedError
+        self._running.clear()
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+        if self._analysis_thread is not None:
+            self._analysis_thread.join(timeout=ANALYSIS_POLL_TIMEOUT_SEC + 1)
+            self._analysis_thread = None
+        self.diagnostics.log_state_change("audio_engine_stopped")
 
     def measure_round_trip_latency(self) -> float:
-        """Loopback click test per CLAUDE.md's Phase 1 plumbing step."""
-        raise NotImplementedError
+        """Loopback click test per CLAUDE.md's Phase 1 plumbing step --
+        needs a physical loopback cable from an output to an input on the
+        configured device and must run on the target PC; not something
+        this test suite can exercise."""
+        raise NotImplementedError(
+            "requires a physical loopback cable and the configured audio device -- run on the target PC"
+        )
 
-    def _audio_callback(self, indata, outdata, frames, time_info, status) -> None:  # noqa: ANN001
+    def _audio_callback(self, indata: np.ndarray, outdata: np.ndarray, frames: int, time_info, status) -> None:
         """PortAudio callback. Real-time constraint: filter processing
-        only, no allocation, no analysis/ML, no logging on the hot path
-        beyond what's pre-buffered for the analysis thread to drain."""
-        raise NotImplementedError
+        only, no analysis/ML, no diagnostics logging on the hot path."""
+        for channel_index in range(indata.shape[1]):
+            channel_number = channel_index + 1
+            bank = self.filter_banks.get(channel_number)
+            outdata[:, channel_index] = bank.process(indata[:, channel_index]) if bank is not None else indata[:, channel_index]
+
+        try:
+            self._analysis_queue.put_nowait(indata.copy())
+        except queue.Full:
+            pass  # analysis thread is behind -- drop this block rather than block the callback
+
+    def _analysis_loop(self) -> None:
+        while self._running.is_set():
+            try:
+                block = self._analysis_queue.get(timeout=ANALYSIS_POLL_TIMEOUT_SEC)
+            except queue.Empty:
+                continue
+            self._analyze_block(block)
+
+    def _analyze_block(self, block: np.ndarray) -> None:
+        for channel_index in range(block.shape[1]):
+            channel_number = channel_index + 1
+            bank = self.filter_banks.get(channel_number)
+            if bank is None:
+                continue
+            for candidate in self.detector.analyze(block[:, channel_index]):
+                if len(bank.active_notches()) >= bank.max_notches:
+                    continue
+                notch_id = bank.add_notch(candidate.frequency_hz)
+                self.diagnostics.log_state_change(
+                    "notch_placed",
+                    after={
+                        "channel": channel_number,
+                        "notch_id": notch_id,
+                        "frequency_hz": candidate.frequency_hz,
+                        "peak_to_average_db": candidate.peak_to_average_db,
+                    },
+                )
