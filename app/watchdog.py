@@ -40,12 +40,17 @@ _CAUGHT_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 class Watchdog:
     def __init__(
         self,
-        osc: OscConnection,
+        osc: OscConnection | None,
         diagnostics: DiagnosticsLogger,
         state: AppState,
         snapshot_provider: Callable[[], RoutingSnapshot | None],
         restore_fn: RestoreFn = restore_snapshot,
     ) -> None:
+        # Mutable, not just constructor-injected: app.web.routes' console
+        # connect/disconnect endpoints reassign this at runtime (there is
+        # no console connection yet on a first run with nothing configured,
+        # per CLAUDE.md's device/console setup flow), so a crash before any
+        # connect must be a no-op rather than crash the crash handler.
         self.osc = osc
         self.diagnostics = diagnostics
         self.state = state
@@ -98,6 +103,10 @@ class Watchdog:
             if self._restored:
                 return []
             self._restored = True
+
+        if self.osc is None:
+            self.diagnostics.log_watchdog("restore_skipped_no_console_connection", {"reason": reason})
+            return []
 
         snapshot = self.snapshot_provider()
         if snapshot is None:

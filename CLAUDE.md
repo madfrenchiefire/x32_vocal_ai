@@ -170,6 +170,20 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   the fader surface). System arm/disarm lives in the web UI only. Do not revisit.
 
 ## Web UI (Flask + WebSockets)
+- **Console setup panel** (implemented, `app/web/routes.py` `/api/console/*`):
+  manual host/port entry plus a "Search for Console" button
+  (`app.osc.discovery.discover_consoles`, broadcasts `/xinfo` to the local
+  subnet and collects whichever consoles reply within a couple of seconds —
+  the same technique other X32 remote apps use to avoid requiring the user
+  to already know the console's IP). Connect/disconnect are live: the
+  console IP is no longer config-file-only, and connecting rewires the
+  live `OscConnection` into every other route, the running `MidiService`,
+  and the crash watchdog without a restart. `app/main.py` now arms the
+  watchdog unconditionally at startup (even with no console configured
+  yet) specifically so this endpoint has something to wire a connection
+  into later. Known limitation: discovery sends to one broadcast address
+  per call, so a PC with multiple NICs on different subnets needs the
+  request repeated per subnet — not auto-enumerated.
 - **Device setup panel** (implemented, `app/web/routes.py` `/api/devices` +
   `/api/devices/select`): dropdowns for audio input device, audio output device,
   MIDI input port, MIDI output port (list from `app/audio/devices.py` and

@@ -18,6 +18,8 @@ from app.audio.echo_cancellation import EchoCancellationError, auto_route_refere
 from app.config import save_config
 from app.diagnostics.export import build_debug_bundle
 from app.midi import devices as midi_devices
+from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
+from app.osc.discovery import discover_consoles
 from app.osc.routing_apply import RoutingApplyError, apply_routing, bypass_channel, restore_snapshot
 from app.osc.routing_snapshot import read_routing_snapshot, save_snapshot
 
@@ -110,6 +112,111 @@ def select_devices():
         correlation_id=correlation_id,
     )
     return jsonify(status="ok")
+
+
+# -- console setup ------------------------------------------------------------
+
+
+@bp.route("/api/console/search", methods=["POST"])
+def search_console():
+    diagnostics = current_app.extensions["diagnostics"]
+    body = request.get_json(force=True, silent=True) or {}
+    diagnostics.log_user_action("search_console", body)
+
+    try:
+        found = discover_consoles(
+            target_address=body.get("target_address", "255.255.255.255"),
+            port=int(body.get("port", 10023)),
+            timeout_sec=float(body.get("timeout_sec", 2.0)),
+        )
+    except OSError as exc:
+        return jsonify(error=str(exc)), 500
+
+    return jsonify(consoles=[dataclasses.asdict(c) for c in found])
+
+
+@bp.route("/api/console/status")
+def console_status():
+    config = current_app.extensions["app_config"]
+    osc = current_app.extensions.get("osc_connection")
+    return jsonify(
+        connected=osc is not None and osc.connected,
+        console_ip=config.console_ip,
+        console_port=config.console_port,
+        xinfo=osc.xinfo if osc is not None else {},
+    )
+
+
+@bp.route("/api/console/connect", methods=["POST"])
+def connect_console():
+    config = current_app.extensions["app_config"]
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    body = request.get_json(force=True, silent=True) or {}
+
+    host = body.get("host")
+    if not host:
+        return jsonify(error="host is required"), 400
+    port = int(body.get("port", config.console_port))
+
+    correlation_id = diagnostics.log_user_action("connect_console", {"host": host, "port": port})
+
+    previous_osc = current_app.extensions.get("osc_connection")
+    if previous_osc is not None:
+        previous_osc.close()
+
+    osc = OscConnection(
+        host=host,
+        port=port,
+        diagnostics=diagnostics,
+        state=state,
+        timeout_sec=config.osc_timeout_sec,
+        xremote_interval_sec=config.xremote_interval_sec,
+        min_firmware=config.min_firmware,
+        reconnect_backoff_sec=config.reconnect_backoff_sec,
+    )
+    try:
+        osc.connect(correlation_id=correlation_id)
+    except (OscConnectionError, FirmwareTooOldError) as exc:
+        diagnostics.log_error(exc, context="connect_console failed", correlation_id=correlation_id)
+        current_app.extensions["osc_connection"] = None
+        return jsonify(error=str(exc)), 502
+
+    current_app.extensions["osc_connection"] = osc
+    config.console_ip = host
+    config.console_port = port
+    config_path = current_app.extensions.get("config_path")
+    if config_path is not None:
+        save_config(config, config_path)
+
+    midi_service = current_app.extensions.get("midi_service")
+    if midi_service is not None:
+        midi_service.osc = osc
+    watchdog = current_app.extensions.get("watchdog")
+    if watchdog is not None:
+        watchdog.osc = osc
+
+    return jsonify(connected=True, xinfo=osc.xinfo)
+
+
+@bp.route("/api/console/disconnect", methods=["POST"])
+def disconnect_console():
+    diagnostics = current_app.extensions["diagnostics"]
+    diagnostics.log_user_action("disconnect_console")
+
+    osc = current_app.extensions.get("osc_connection")
+    if osc is not None:
+        osc.close()
+    current_app.extensions["osc_connection"] = None
+
+    midi_service = current_app.extensions.get("midi_service")
+    if midi_service is not None:
+        midi_service.osc = None
+    watchdog = current_app.extensions.get("watchdog")
+    if watchdog is not None:
+        watchdog.osc = None
+
+    return jsonify(connected=False)
 
 
 # -- state / channels --------------------------------------------------------

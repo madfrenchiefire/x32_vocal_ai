@@ -50,7 +50,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def _start_osc(config: AppConfig, diagnostics: DiagnosticsLogger, state: AppState) -> OscConnection | None:
     if config.console_ip is None:
-        print("No console_ip configured -- routing features unavailable until set up in the web UI.")
+        print("No console_ip configured -- use the web UI's Console Setup panel to search for one or enter its IP.")
         return None
 
     osc = OscConnection(
@@ -172,21 +172,24 @@ def main(argv: list[str] | None = None) -> int:
     midi_service = _start_midi(config, diagnostics, state, osc)
     audio_engine = _start_audio(config, diagnostics, state)
 
-    watchdog: Watchdog | None = None
-    if osc is not None:
-        watchdog = Watchdog(osc=osc, diagnostics=diagnostics, state=state, snapshot_provider=lambda: state.current_snapshot)
-        watchdog.start()
+    # Armed unconditionally, even with osc=None on a first run with no
+    # console configured yet -- app.web.routes' /api/console/connect
+    # reassigns watchdog.osc once the user searches for or manually enters
+    # a console in the web UI, and Watchdog itself is a no-op restore
+    # (logged, not crashed) if triggered while osc is still None.
+    watchdog = Watchdog(osc=osc, diagnostics=diagnostics, state=state, snapshot_provider=lambda: state.current_snapshot)
+    watchdog.start()
 
     try:
         print(f"Starting web UI on http://{config.web_host}:{config.web_port}")
         run_web(
             config, state, diagnostics,
             osc=osc, audio_engine=audio_engine, midi_service=midi_service, config_path=config_path,
+            watchdog=watchdog,
         )
     finally:
-        if watchdog is not None:
-            watchdog.trigger_full_restore(reason="clean_shutdown")
-            watchdog.stop()
+        watchdog.trigger_full_restore(reason="clean_shutdown")
+        watchdog.stop()
         if audio_engine is not None:
             audio_engine.stop()
         if midi_service is not None:

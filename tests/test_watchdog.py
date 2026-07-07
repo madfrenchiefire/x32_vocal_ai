@@ -65,6 +65,24 @@ def test_trigger_full_restore_calls_restore_fn_once(diagnostics, app_state):
     restore_fn.assert_called_once()
 
 
+def test_trigger_full_restore_skips_when_no_console_connection(diagnostics, app_state):
+    snapshot = _make_snapshot()
+    restore_fn = MagicMock(return_value=[])
+    watchdog = Watchdog(
+        osc=None, diagnostics=diagnostics, state=app_state, snapshot_provider=lambda: snapshot, restore_fn=restore_fn
+    )
+
+    mismatches = watchdog.trigger_full_restore(reason="test")
+    assert mismatches == []
+    restore_fn.assert_not_called()
+
+    events = diagnostics.get_recent(5)
+    assert any(
+        e["payload"]["event"] == "restore_skipped_no_console_connection"
+        for e in events if e["category"] == "watchdog"
+    )
+
+
 def test_trigger_full_restore_skips_when_no_snapshot(diagnostics, app_state):
     restore_fn = MagicMock(return_value=[])
     watchdog = _make_watchdog(diagnostics, app_state, snapshot=None, restore_fn=restore_fn)

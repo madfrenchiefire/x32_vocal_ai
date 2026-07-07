@@ -31,6 +31,27 @@ def test_main_with_nothing_configured_starts_only_the_web_ui(monkeypatch, tmp_pa
     assert run_web.call_args.kwargs["midi_service"] is None
 
 
+def test_main_arms_watchdog_even_with_no_console_configured(monkeypatch, tmp_path):
+    # The watchdog must exist from the start (with osc=None) so
+    # /api/console/connect has something to wire a live connection into
+    # later -- it shouldn't only appear once a console happens to connect
+    # at startup.
+    config_path = _write_config(tmp_path)
+    run_web = MagicMock()
+    monkeypatch.setattr(main_module, "run_web", run_web)
+
+    watchdog_instance = MagicMock()
+    monkeypatch.setattr(main_module, "Watchdog", MagicMock(return_value=watchdog_instance))
+
+    exit_code = main_module.main(["--config", config_path])
+
+    assert exit_code == 0
+    watchdog_instance.start.assert_called_once()
+    assert run_web.call_args.kwargs["watchdog"] is watchdog_instance
+    watchdog_instance.trigger_full_restore.assert_called_once_with(reason="clean_shutdown")
+    watchdog_instance.stop.assert_called_once()
+
+
 def test_main_starts_osc_and_arms_watchdog_when_console_connects(monkeypatch, tmp_path):
     config_path = _write_config(tmp_path, console_ip="10.10.0.142")
     run_web = MagicMock()

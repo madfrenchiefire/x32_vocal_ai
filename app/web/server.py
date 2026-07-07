@@ -18,6 +18,7 @@ from app.diagnostics.logger import DiagnosticsLogger
 from app.midi.service import MidiService
 from app.osc.connection import OscConnection
 from app.state import AppState
+from app.watchdog import Watchdog
 from app.web.routes import bp as main_bp
 from app.web.sockets import register_socket_handlers
 
@@ -30,14 +31,22 @@ def create_app(
     audio_engine: AudioEngine | None = None,
     midi_service: MidiService | None = None,
     config_path: str | None = None,
+    watchdog: Watchdog | None = None,
 ) -> tuple[Flask, SocketIO]:
     app = Flask(__name__)
     app.extensions["app_config"] = config
     app.extensions["app_state"] = state
     app.extensions["diagnostics"] = diagnostics
+    # osc_connection is intentionally mutable after create_app() returns --
+    # app.web.routes' /api/console/connect and /disconnect endpoints
+    # reassign it at runtime (there is no console connection yet on a first
+    # run with nothing configured), and every other route already reads it
+    # fresh via current_app.extensions.get() on each request rather than
+    # caching it, so reassigning here is all reconnecting needs.
     app.extensions["osc_connection"] = osc
     app.extensions["audio_engine"] = audio_engine
     app.extensions["midi_service"] = midi_service
+    app.extensions["watchdog"] = watchdog
     # Device selections are persisted here if set (app.web.routes'
     # /api/devices/select) -- None means "update the in-memory config for
     # this run only", so tests and ad-hoc create_app() callers never write
@@ -60,6 +69,7 @@ def run(
     audio_engine: AudioEngine | None = None,
     midi_service: MidiService | None = None,
     config_path: str | None = None,
+    watchdog: Watchdog | None = None,
 ) -> None:
-    app, socketio = create_app(config, state, diagnostics, osc, audio_engine, midi_service, config_path)
+    app, socketio = create_app(config, state, diagnostics, osc, audio_engine, midi_service, config_path, watchdog)
     socketio.run(app, host=config.web_host, port=config.web_port)

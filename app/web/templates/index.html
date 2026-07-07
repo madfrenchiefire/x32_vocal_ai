@@ -30,6 +30,24 @@
 <body>
   <h1>X32 AI Feedback Suppression</h1>
 
+  <section id="console-setup">
+    <h2>Console</h2>
+    <div class="row">
+      <label for="console-host">Console IP</label>
+      <input type="text" id="console-host" placeholder="10.10.0.142" style="width: 10rem;">
+      <label for="console-port" style="min-width: auto; margin-left: 0.5rem;">Port</label>
+      <input type="number" id="console-port" value="10023" style="width: 6rem;">
+      <button id="console-connect-btn">Connect</button>
+      <button id="console-disconnect-btn">Disconnect</button>
+    </div>
+    <div class="row">
+      <button id="console-search-btn">Search for Console</button>
+      <select id="console-search-results" style="min-width: 20rem;"></select>
+      <button id="console-use-result-btn">Use Selected</button>
+    </div>
+    <div id="console-status" class="status"></div>
+  </section>
+
   <section id="device-setup">
     <h2>Device Setup</h2>
     <div class="row">
@@ -139,6 +157,78 @@
         setStatus("device-status", `Failed to load devices: ${err}`, true);
       }
     }
+
+    async function loadConsoleStatus() {
+      try {
+        const data = await api("/api/console/status");
+        if (data.connected) {
+          el("console-host").value = data.console_ip || "";
+          el("console-port").value = data.console_port || 10023;
+          setStatus("console-status", `Connected: ${data.xinfo.name || ""} ${data.xinfo.model || ""} (firmware ${data.xinfo.version || "?"})`);
+        } else {
+          setStatus("console-status", "Not connected.");
+        }
+      } catch (err) {
+        setStatus("console-status", `Failed to load console status: ${err}`, true);
+      }
+    }
+
+    el("console-connect-btn").addEventListener("click", async () => {
+      const host = el("console-host").value.trim();
+      if (!host) {
+        setStatus("console-status", "Enter a console IP first.", true);
+        return;
+      }
+      setStatus("console-status", `Connecting to ${host}...`);
+      try {
+        const data = await api("/api/console/connect", {
+          method: "POST",
+          body: JSON.stringify({ host, port: parseInt(el("console-port").value, 10) || 10023 }),
+        });
+        setStatus("console-status", `Connected: ${data.xinfo.name || ""} ${data.xinfo.model || ""} (firmware ${data.xinfo.version || "?"})`);
+      } catch (err) {
+        setStatus("console-status", `Connect failed: ${err}`, true);
+      }
+    });
+
+    el("console-disconnect-btn").addEventListener("click", async () => {
+      try {
+        await api("/api/console/disconnect", { method: "POST" });
+        setStatus("console-status", "Disconnected.");
+      } catch (err) {
+        setStatus("console-status", `Disconnect failed: ${err}`, true);
+      }
+    });
+
+    el("console-search-btn").addEventListener("click", async () => {
+      setStatus("console-status", "Searching the local network...");
+      const select = el("console-search-results");
+      select.innerHTML = "";
+      try {
+        const data = await api("/api/console/search", { method: "POST", body: JSON.stringify({}) });
+        if (!data.consoles.length) {
+          setStatus("console-status", "No consoles found on the local network.");
+          return;
+        }
+        for (const found of data.consoles) {
+          const option = document.createElement("option");
+          option.value = JSON.stringify({ host: found.host, port: found.port });
+          option.textContent = `${found.host} -- ${found.name} (${found.model}, firmware ${found.version})`;
+          select.appendChild(option);
+        }
+        setStatus("console-status", `Found ${data.consoles.length} console(s).`);
+      } catch (err) {
+        setStatus("console-status", `Search failed: ${err}`, true);
+      }
+    });
+
+    el("console-use-result-btn").addEventListener("click", () => {
+      const select = el("console-search-results");
+      if (!select.value) return;
+      const picked = JSON.parse(select.value);
+      el("console-host").value = picked.host;
+      el("console-port").value = picked.port;
+    });
 
     el("rescan-devices-btn").addEventListener("click", loadDevices);
 
@@ -396,6 +486,7 @@
       });
     }
 
+    loadConsoleStatus();
     loadDevices();
     loadChannels();
     loadRecentEvents();

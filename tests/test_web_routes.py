@@ -121,6 +121,110 @@ def test_select_devices_without_config_path_does_not_write_to_disk(tmp_path, app
     assert not (tmp_path / "config.json").exists()
 
 
+# -- console setup -------------------------------------------------------------
+
+
+def test_search_console_returns_discovered_list(monkeypatch, tmp_path, app_state, diagnostics):
+    from app.osc.discovery import DiscoveredConsole
+
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    monkeypatch.setattr(
+        "app.web.routes.discover_consoles",
+        lambda **kwargs: [DiscoveredConsole(host="10.10.0.142", port=10023, name="TESTX32", model="X32", version="4.13")],
+    )
+
+    client = app.test_client()
+    response = client.post("/api/console/search", json={})
+    assert response.status_code == 200
+    assert response.get_json()["consoles"] == [
+        {"host": "10.10.0.142", "port": 10023, "name": "TESTX32", "model": "X32", "version": "4.13"}
+    ]
+
+
+def test_console_status_reports_disconnected_by_default(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    data = client.get("/api/console/status").get_json()
+    assert data["connected"] is False
+
+
+def test_connect_console_succeeds_and_updates_config(fake_x32, tmp_path, app_state, diagnostics):
+    config_path = tmp_path / "config.json"
+    app, _sio, config = _app(tmp_path, app_state, diagnostics, config_path=str(config_path))
+    client = app.test_client()
+
+    response = client.post("/api/console/connect", json={"host": "127.0.0.1", "port": fake_x32.port})
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["connected"] is True
+    assert config.console_ip == "127.0.0.1"
+    assert config.console_port == fake_x32.port
+
+    status = client.get("/api/console/status").get_json()
+    assert status["connected"] is True
+
+    reloaded = load_config(config_path)
+    assert reloaded.console_ip == "127.0.0.1"
+
+    app.extensions["osc_connection"].close()
+
+
+def test_connect_console_requires_host(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post("/api/console/connect", json={})
+    assert response.status_code == 400
+
+
+def test_connect_console_failure_returns_502_and_clears_extension(tmp_path, app_state, diagnostics):
+    app, _sio, config = _app(tmp_path, app_state, diagnostics)
+    config.osc_timeout_sec = 0.2
+    client = app.test_client()
+
+    # Nothing is listening on this port.
+    probe_response = client.post("/api/console/connect", json={"host": "127.0.0.1", "port": 1})
+    assert probe_response.status_code == 502
+    assert app.extensions["osc_connection"] is None
+
+
+def test_connect_console_closes_previous_connection_and_rewires_dependents(fake_x32, tmp_path, app_state, diagnostics):
+    midi_service = MagicMock()
+    watchdog = MagicMock()
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, midi_service=midi_service, watchdog=watchdog)
+    client = app.test_client()
+
+    response = client.post("/api/console/connect", json={"host": "127.0.0.1", "port": fake_x32.port})
+    assert response.status_code == 200
+    new_osc = app.extensions["osc_connection"]
+    assert midi_service.osc is new_osc
+    assert watchdog.osc is new_osc
+
+    previous_osc = MagicMock()
+    previous_osc.connected = True
+    app.extensions["osc_connection"] = previous_osc
+
+    response = client.post("/api/console/connect", json={"host": "127.0.0.1", "port": fake_x32.port})
+    assert response.status_code == 200
+    previous_osc.close.assert_called_once()
+
+    app.extensions["osc_connection"].close()
+
+
+def test_disconnect_console_closes_and_clears_dependents(fake_x32, tmp_path, app_state, diagnostics):
+    midi_service = MagicMock()
+    watchdog = MagicMock()
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, midi_service=midi_service, watchdog=watchdog)
+    client = app.test_client()
+    client.post("/api/console/connect", json={"host": "127.0.0.1", "port": fake_x32.port})
+
+    response = client.post("/api/console/disconnect")
+    assert response.status_code == 200
+    assert response.get_json()["connected"] is False
+    assert app.extensions["osc_connection"] is None
+    assert midi_service.osc is None
+    assert watchdog.osc is None
+
+
 # -- channels -------------------------------------------------------------
 
 
