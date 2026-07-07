@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock
 
 from app.audio.devices import AudioDevice
-from app.audio.echo_cancellation import MAIN_LR_USERROUT_OUT_VALUE
+from app.audio.echo_cancellation import MAIN_L_USERROUT_OUT_VALUE
 from app.audio.engine import AudioEngine
 from app.audio.filters import NotchFilterBank
 from app.config import AppConfig, load_config
@@ -484,7 +484,7 @@ def test_echo_cancellation_toggle_routes_reference(fake_x32, tmp_path, app_state
         data = response.get_json()
         assert data["reference_card_channels"] == [1, 2]
         assert config.echo_cancellation_enabled is True
-        assert fake_x32.extra_responses[addresses.userrout_out_addr(1)] == (MAIN_LR_USERROUT_OUT_VALUE,)
+        assert fake_x32.extra_responses[addresses.userrout_out_addr(1)] == (MAIN_L_USERROUT_OUT_VALUE,)
     finally:
         osc.close()
 
@@ -516,7 +516,7 @@ def test_set_echo_reference_uses_explicit_card_channels(fake_x32, tmp_path, app_
         assert response.status_code == 200
         assert response.get_json()["reference_card_channels"] == [10, 11]
         assert config.echo_reference_card_channels == (10, 11)
-        assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (MAIN_LR_USERROUT_OUT_VALUE,)
+        assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (MAIN_L_USERROUT_OUT_VALUE,)
     finally:
         osc.close()
 

@@ -82,11 +82,27 @@ USERROUT_SOURCE_RANGES: list[tuple[int, int, str]] = [
     (129, 160, "Card"),
 ]
 
+# Individual values confirmed beyond the four physical-source ranges above
+# (real hardware, firmware 4.13, 2026-07-07 -- see
+# app.audio.echo_cancellation's MAIN_L_USERROUT_OUT_VALUE/
+# MAIN_R_USERROUT_OUT_VALUE). The flat userrout enumeration continues past
+# Card (129-160) through at least one more family before reaching these --
+# almost certainly Bus/MixBus (16-wide) and Matrix (6-wide), by the same
+# one-past-the-previous-range pattern every other family here follows
+# (161-176 Bus, 177-182 Matrix would put Main L/R at 183/184 exactly as
+# observed) -- but that arithmetic is inferred, not independently
+# confirmed, so only the two values actually read back are recorded here.
+USERROUT_NAMED_VALUES: dict[int, str] = {
+    183: "Main L",
+    184: "Main R",
+}
+
 
 def decode_userrout_value(value: int | None) -> str | None:
     """Decode a raw userrout/in or userrout/out integer into a
     "<source> <channel>" string, e.g. 34 -> "AES50-A 2". Confirmed against
-    real hardware for all four source families (see comment above).
+    real hardware for all four source families (see comment above), plus
+    the individually confirmed named values above.
     Returns None if value is None. Every channel/console seen so far
     reports 0 for "not yet assigned via User Routing" -- not confirmed to
     mean anything more specific than that (e.g. distinct from an explicit
@@ -100,6 +116,8 @@ def decode_userrout_value(value: int | None) -> str | None:
     for start, end, label in USERROUT_SOURCE_RANGES:
         if start <= value <= end:
             return f"{label} {value - start + 1}"
+    if value in USERROUT_NAMED_VALUES:
+        return USERROUT_NAMED_VALUES[value]
     return f"UNKNOWN({value})"
 
 # --- userrout: bulk (scene-dump form, untested for live bare-query reply) -

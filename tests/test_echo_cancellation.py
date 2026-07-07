@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from app.audio.echo_cancellation import (
-    MAIN_LR_USERROUT_OUT_VALUE,
+    MAIN_L_USERROUT_OUT_VALUE,
+    MAIN_R_USERROUT_OUT_VALUE,
     EchoCancellationError,
     EchoCanceller,
     auto_route_reference_signal,
@@ -119,8 +120,8 @@ def test_auto_route_reference_signal_picks_free_card_slots_and_writes(fake_x32, 
 
     assert slots == (2, 3)
     assert config.echo_reference_card_channels == (2, 3)
-    assert fake_x32.extra_responses[addresses.userrout_out_addr(2)] == (MAIN_LR_USERROUT_OUT_VALUE,)
-    assert fake_x32.extra_responses[addresses.userrout_out_addr(3)] == (MAIN_LR_USERROUT_OUT_VALUE,)
+    assert fake_x32.extra_responses[addresses.userrout_out_addr(2)] == (MAIN_L_USERROUT_OUT_VALUE,)
+    assert fake_x32.extra_responses[addresses.userrout_out_addr(3)] == (MAIN_R_USERROUT_OUT_VALUE,)
 
 
 def test_auto_route_reference_signal_is_idempotent(fake_x32, diagnostics, app_state):
@@ -178,8 +179,8 @@ def test_auto_route_reference_signal_uses_explicit_card_channels(fake_x32, diagn
 
     assert slots == (10, 11)
     assert config.echo_reference_card_channels == (10, 11)
-    assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (MAIN_LR_USERROUT_OUT_VALUE,)
-    assert fake_x32.extra_responses[addresses.userrout_out_addr(11)] == (MAIN_LR_USERROUT_OUT_VALUE,)
+    assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (MAIN_L_USERROUT_OUT_VALUE,)
+    assert fake_x32.extra_responses[addresses.userrout_out_addr(11)] == (MAIN_R_USERROUT_OUT_VALUE,)
 
 
 def test_auto_route_reference_signal_explicit_channels_override_previous_choice(fake_x32, diagnostics, app_state):

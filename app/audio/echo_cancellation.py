@@ -30,18 +30,20 @@ from app.osc import addresses
 from app.osc.connection import OscConnection
 from app.state import AppState
 
-# TODO-VERIFY: raw userrout/out value for "Main L/R" as a source. Every
-# value confirmed so far (addresses.USERROUT_SOURCE_RANGES) covers only
-# physical sources -- Local Analog (1-32), AES50-A (33-80), AES50-B
-# (81-128), Card (129-160) -- not a console mix-bus signal. Main L/R
-# presumably continues the same flat enumeration one past Card's range,
-# by the same pattern used for every other source family in this project,
-# but that is a guess, not a confirmed value. Confirm the same way every
-# other value here was confirmed: route Main L/R to a User Out slot on the
-# console, read /config/userrout/out/NN back, and check the raw value (or
-# use `python -m app.tools.test_write_routing` to try candidates and watch
-# the routing matrix). One-line fix once known.
-MAIN_LR_USERROUT_OUT_VALUE = 161
+# Raw userrout/out values for "Main L" and "Main R" as a source --
+# confirmed on real hardware (firmware 4.13, 2026-07-07): reading back
+# /config/userrout/out/31 and /32 after patching Main L/R (post-fader)
+# through to those two Card channels showed 183 and 184 respectively --
+# distinct values, not the same value for both (see
+# app.osc.addresses.USERROUT_NAMED_VALUES for how this fits the rest of
+# the flat userrout enumeration). The console's own GUI reaches this via a
+# three-hop patch (a physical Out jack set to Main L/R, then a User Out
+# bank sourced from that Out block, then a Card bank sourced from that
+# User Out bank) -- but the *resulting* per-channel userrout/out value is
+# still this one flat number either way, so auto_route_reference_signal
+# below only ever needs the single direct write below, not that detour.
+MAIN_L_USERROUT_OUT_VALUE = 183
+MAIN_R_USERROUT_OUT_VALUE = 184
 
 
 class EchoCancellationError(Exception):
@@ -172,16 +174,22 @@ def auto_route_reference_signal(
         slot_a, slot_b = _free_card_slots(state, 2)
         config.echo_reference_card_channels = (slot_a, slot_b)
 
-    for slot in (slot_a, slot_b):
-        osc.send(addresses.userrout_out_addr(slot), MAIN_LR_USERROUT_OUT_VALUE, correlation_id=correlation_id)
+    # slot_a carries Main L, slot_b carries Main R -- these are genuinely
+    # different values (183 vs 184), not the same value written twice, so
+    # the two Card channels actually carry distinct left/right signal
+    # rather than duplicate mono.
+    channel_values = ((slot_a, MAIN_L_USERROUT_OUT_VALUE), (slot_b, MAIN_R_USERROUT_OUT_VALUE))
+
+    for slot, value in channel_values:
+        osc.send(addresses.userrout_out_addr(slot), value, correlation_id=correlation_id)
         time.sleep(pace_sec)
 
     mismatches: list[str] = []
-    for slot in (slot_a, slot_b):
+    for slot, value in channel_values:
         addr = addresses.userrout_out_addr(slot)
-        actual = osc.query_until_match(addr, MAIN_LR_USERROUT_OUT_VALUE, correlation_id=correlation_id)
-        if actual != MAIN_LR_USERROUT_OUT_VALUE:
-            mismatches.append(f"{addr}: expected {MAIN_LR_USERROUT_OUT_VALUE}, got {actual}")
+        actual = osc.query_until_match(addr, value, correlation_id=correlation_id)
+        if actual != value:
+            mismatches.append(f"{addr}: expected {value}, got {actual}")
 
     if mismatches:
         error = EchoCancellationError(
@@ -192,7 +200,10 @@ def auto_route_reference_signal(
 
     diagnostics.log_state_change(
         "echo_reference_routed",
-        after={"card_channels": [slot_a, slot_b], "userrout_out_value": MAIN_LR_USERROUT_OUT_VALUE},
+        after={
+            "card_channels": [slot_a, slot_b],
+            "userrout_out_values": {"left": MAIN_L_USERROUT_OUT_VALUE, "right": MAIN_R_USERROUT_OUT_VALUE},
+        },
         correlation_id=correlation_id,
     )
     return (slot_a, slot_b)

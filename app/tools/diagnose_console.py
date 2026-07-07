@@ -30,7 +30,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.audio.echo_cancellation import MAIN_LR_USERROUT_OUT_VALUE
+from app.audio.echo_cancellation import MAIN_L_USERROUT_OUT_VALUE, MAIN_R_USERROUT_OUT_VALUE
 from app.config import load_config
 from app.diagnostics.logger import DiagnosticsLogger
 from app.osc import addresses
@@ -176,10 +176,13 @@ def main(argv: list[str] | None = None) -> int:
                 osc, list(addresses.ALL_USERROUT_OUT), diagnostics, correlation_id,
                 "Main L/R echo-cancellation reference value",
                 (
-                    "On the console: Setup > Routing > Out, pick any free User Out slot and set its\n"
-                    "source to Main L/R (or Mix Bus L/R -- whatever your console labels the main mix).\n"
-                    "(app.audio.echo_cancellation.MAIN_LR_USERROUT_OUT_VALUE is currently a placeholder: "
-                    f"{MAIN_LR_USERROUT_OUT_VALUE})"
+                    "Already confirmed on one console (firmware 4.13): Main L=183, Main R=184 "
+                    f"(app.audio.echo_cancellation.MAIN_L_USERROUT_OUT_VALUE={MAIN_L_USERROUT_OUT_VALUE}, "
+                    f"MAIN_R_USERROUT_OUT_VALUE={MAIN_R_USERROUT_OUT_VALUE}). This step cross-checks it on "
+                    "*your* console: on the console, patch Main L/R into any free User Out slot (e.g.\n"
+                    "Setup > Routing > Out, set a physical output to Main L/R, then Setup > Routing > User\n"
+                    "Out, source that User Out block from the matching Out block) and this will report\n"
+                    "whatever raw value results."
                 ),
                 args.watch_timeout,
             )
@@ -214,8 +217,10 @@ def main(argv: list[str] | None = None) -> int:
         printed_something = False
         for addr, diff in (report.get("main_lr_reference_watch") or {}).items():
             print(
-                f"Main L/R reference: {addr} = {diff['after']} -- update MAIN_LR_USERROUT_OUT_VALUE "
-                "in app/audio/echo_cancellation.py"
+                f"Main L/R reference: {addr} = {diff['after']} -- if this doesn't match "
+                f"MAIN_L_USERROUT_OUT_VALUE={MAIN_L_USERROUT_OUT_VALUE}/"
+                f"MAIN_R_USERROUT_OUT_VALUE={MAIN_R_USERROUT_OUT_VALUE} in app/audio/echo_cancellation.py, "
+                "this console/firmware may differ -- worth a second look."
             )
             printed_something = True
         for addr, diff in (report.get("assign_set_format_watch") or {}).items():

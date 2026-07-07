@@ -100,15 +100,21 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   pick the two Card ports explicitly — validated against conflicts with any
   provisioned mic channel's `card_out_slot` — and overrides whatever was
   auto-picked or reused from a previous session.
-  **Open item: the raw `userrout/out` value for "Main L/R" as a source is not yet
-  confirmed** — everything confirmed so far (`app/osc/addresses.py`
-  `USERROUT_SOURCE_RANGES`) only covers Local Analog/AES50-A/AES50-B/Card as physical
-  sources, not console mix-bus signals. Confirm empirically the same way every other
-  value in this project was confirmed: on the console, route Main L/R to a User Out
-  slot, then read `/config/userrout/out/NN` back and note the raw value (or use
-  `python -m app.tools.test_write_routing` to try candidates and check the routing
-  matrix). `app/audio/echo_cancellation.py`'s auto-routing function takes this value
-  as a named constant, clearly marked TODO-VERIFY, so it's a one-line fix once known.
+  **Raw `userrout/out` values for "Main L" and "Main R" as a source — confirmed
+  against real hardware (2026-07-07, firmware 4.13):** `MAIN_L_USERROUT_OUT_VALUE
+  = 183`, `MAIN_R_USERROUT_OUT_VALUE = 184` — two distinct values, not the same
+  value written to both Card channels (the code originally wrote one shared
+  placeholder to both, which would have duplicated mono into both "reference"
+  channels instead of true L/R; fixed alongside this confirmation). Confirmed by
+  patching Main L/R (post-fader) through to two Card channels on a real console
+  and reading `/config/userrout/out/NN` back via
+  `python -m app.tools.diagnose_console`'s passive capture — see
+  `app.osc.addresses.USERROUT_NAMED_VALUES`. The console's own GUI reaches this
+  via a three-hop patch (a physical XLR output set to Main L/R → a User Out bank
+  sourced from that Out block → a Card bank sourced from that User Out bank), but
+  the *resulting* per-channel `userrout/out` value is still this one flat number
+  either way, so `auto_route_reference_signal` only ever needs the direct
+  single-address write below, not that detour.
 - **Algorithm: NLMS (normalized least-mean-squares) adaptive FIR filter**, one per
   channel with echo cancellation enabled, filter length sized to the room's expected
   reflection tail (start around 200 ms at 48 kHz = ~9600 taps; tune once real rooms
@@ -336,7 +342,7 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
    `app/audio/detection.py`).
 4. **Echo cancellation** — done (`app/audio/echo_cancellation.py`): NLMS
    canceller + auto-routed reference signal (Main L/R's raw `userrout/out`
-   value is still a TODO-VERIFY placeholder, see below).
+   values are confirmed, see below).
 5. **ML classifier** — not started; needs real ring-out recordings first,
    deliberately not built until that data exists (`app/audio/ml/classifier.py`
    remains a documented `NotImplementedError` stub).
@@ -356,7 +362,9 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   still-open item that needs a human to change something on the console while
   the tool watches for the resulting raw value (`watch_until_changed`: reads a
   baseline, polls until it differs or a timeout elapses) -- currently wired up
-  for the Main L/R echo-reference value and the MIDI assign-set format, plus a
+  for the MIDI assign-set format (still open) and the Main L/R echo-reference
+  value (already confirmed on one console, see below -- this step now serves
+  as a cross-check on a different console/firmware), plus a
   `--watch ADDRESS [ADDRESS ...]` escape hatch for anything else not hardcoded
   into the wizard (e.g. one of the inferred-but-unconfirmed routing bank values
   below). It also attempts a best-effort `/meters` capture (`capture_meters_sample`
@@ -365,26 +373,14 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   saving whatever raw bytes come back for offline decoding. Everything lands in
   one timestamped JSON report under `<log_dir>/protocol_discovery/`, and the
   tool's final summary says exactly which constant to update with whatever got
-  confirmed that run (e.g. `MAIN_LR_USERROUT_OUT_VALUE`). `--passive-only` skips
-  every interactive step (useful for a quick capture without standing at the
-  console); each guided watch step is individually Ctrl+C-skippable.
+  confirmed that run. `--passive-only` skips every interactive step (useful for
+  a quick capture without standing at the console); each guided watch step is
+  individually Ctrl+C-skippable.
 - MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical
   (or `app.tools.diagnose_console`'s guided watch step, above).
 - `/meters` blob layout for the meters we need (or `app.tools.diagnose_console`'s
   default best-effort raw capture step, above, for offline decoding).
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
-- **Raw `userrout/out` value for "Main L/R" as an echo-cancellation reference
-  source.** Every confirmed `userrout` value so far (`app/osc/addresses.py`
-  `USERROUT_SOURCE_RANGES`) is a physical source (Local Analog/AES50-A/AES50-B/
-  Card) — none of the empirical tests so far routed a console mix bus (Main L/R,
-  a Bus, a Matrix) as a `userrout` source, so there's no confirmed value for that
-  yet. `app/audio/echo_cancellation.py`'s auto-routing constant is a clearly
-  marked placeholder pending this. Confirm the same way as everything else in
-  this project: route Main L/R to a User Out slot on the console, read back
-  `/config/userrout/out/NN`, note the raw value (`python -m
-  app.tools.diagnose_console`'s guided watch step does exactly this and reports
-  the result, or sweep candidates manually with `python -m
-  app.tools.test_write_routing`).
 - **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
   from two sources: (1) a real console scene (`.scn`) file dump, and (2)
   Patrick-Gilles Maillot's own reverse-engineered parameter table and enum
@@ -479,7 +475,24 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   Every untouched channel across three consoles now reads `0`; decoded as
   `"UNSET(0)"` rather than assumed to mean "off" since that specific
   meaning hasn't been separately confirmed. What lies beyond index 160
-  (more AES50 sends, USB, etc.) is still unknown.
+  (more AES50 sends, USB, etc.) is still unknown, except for two individual
+  values confirmed below.
+- **Main L/Main R `userrout/out` values confirmed (2026-07-07, real hardware,
+  firmware 4.13) — 183 and 184, not one shared value.** Patched Main L/R
+  (post-fader) through to two Card channels on a real console (via a
+  three-hop GUI patch: a physical XLR output set to Main L/R → a User Out
+  bank sourced from that Out block → a Card bank sourced from that User Out
+  bank) and read `/config/userrout/out/NN` back for those two Card channels:
+  `183` and `184` respectively. This also surfaced a real bug: the code's
+  original `auto_route_reference_signal` wrote one single guessed placeholder
+  value to *both* Card channels, which would have duplicated mono into both
+  "reference" channels instead of true L/R — fixed alongside this
+  confirmation (`app.audio.echo_cancellation.MAIN_L_USERROUT_OUT_VALUE` /
+  `MAIN_R_USERROUT_OUT_VALUE`, `app.osc.addresses.USERROUT_NAMED_VALUES`).
+  What occupies 161-182 (presumably Bus/MixBus then Matrix, by the same
+  one-past-the-previous-range pattern as every other family here — see the
+  comment above `USERROUT_NAMED_VALUES`) is inferred by arithmetic, not
+  independently confirmed; only 183/184 themselves are.
 
 ## Diagnostics event schema
 
