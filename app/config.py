@@ -25,7 +25,7 @@ class AppConfig:
     min_firmware: str = "4.0"
     reconnect_backoff_sec: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0, 30.0)
 
-    # --- MIDI (Phase 2, not yet implemented) ---
+    # --- MIDI ---
     midi_channel: int = 16
     # Port names as reported by app.midi.devices.list_midi_input_ports() /
     # list_midi_output_ports() (mido). None = not yet chosen -- the MIDI

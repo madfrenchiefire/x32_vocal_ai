@@ -2,10 +2,9 @@
 
 Read-only discovery of available PortAudio devices via sounddevice, so the
 user can choose which sound card is the input device and which is the
-output device -- they need not be the same device -- before the real-time
-audio engine (app.audio.engine, not yet implemented) is built on top of a
-fixed assumption. Implemented now (unlike the rest of app.audio) because
-it's side-effect-free: no audio callback, no stream opened, no real-time
+output device -- they need not be the same device -- before
+app.audio.engine.AudioEngine opens a stream on top of a fixed assumption.
+Side-effect-free: no audio callback, no stream opened, no real-time
 constraint.
 """
 from __future__ import annotations

@@ -219,15 +219,29 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 
 ## Build phases
 1. **Plumbing**: ASIO passthrough Card 1–4 → app → Card 1–4, latency measurement.
-2. **OSC + MIDI control service**: connect, snapshot, apply/restore routing,
-   per-channel bypass, Set A/B provisioning, MIDI listener, scribble-strip feedback.
-   (Testable with console only, no audio engine.)
-3. **Heuristic detection + notch filter bank** — usable product on its own.
-4. **Echo cancellation** (auto-routed reference + NLMS canceller), layered alongside
-   the notch filter bank.
-5. **ML classifier** layered on top of heuristics — needs real ring-out recordings
-   first; not built until that data exists.
-6. Watchdog, event log, polish.
+   `measure_round_trip_latency()` is implemented as a documented
+   `NotImplementedError` (needs a physical loopback cable + the target PC;
+   not something a test suite can exercise) — everything else in this phase
+   (device enumeration/selection) is built.
+2. **OSC + MIDI control service** — done: connect, snapshot, apply/restore
+   routing, per-channel bypass, Set A/B slot lifecycle, MIDI listener,
+   scribble-strip feedback. (Set A/B's actual console-side provisioning,
+   `app/osc/assign_set.py`, is still deliberately not wired to a live write —
+   see the MIDI-assignment string format open item below.)
+3. **Heuristic detection + notch filter bank** — done (`app/audio/filters.py`,
+   `app/audio/detection.py`).
+4. **Echo cancellation** — done (`app/audio/echo_cancellation.py`): NLMS
+   canceller + auto-routed reference signal (Main L/R's raw `userrout/out`
+   value is still a TODO-VERIFY placeholder, see below).
+5. **ML classifier** — not started; needs real ring-out recordings first,
+   deliberately not built until that data exists (`app/audio/ml/classifier.py`
+   remains a documented `NotImplementedError` stub).
+6. **Watchdog, event log, polish** — done: `app/watchdog.py` (signal/atexit/
+   excepthook-triggered restore) and the web UI's live event log
+   (`app/web/sockets.py`, pushed over WebSocket). `app/main.py` is the actual
+   process entrypoint (`python -m app.main`) wiring OSC/MIDI/audio/watchdog/
+   web together — every service is best-effort at startup so an unconfigured
+   or unreachable one is skipped rather than fatal.
 
 ## Open items to verify (do not assume)
 - MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical.

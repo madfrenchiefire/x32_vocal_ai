@@ -3,9 +3,8 @@
 Read-only discovery of available MIDI input/output ports via mido, so the
 user can choose which MIDI-in and which MIDI-out port to use -- they need
 not be the same port name, though on the X-USB card they typically are --
-before app.midi.service (not yet implemented) is built on top of a fixed
-assumption. Implemented now (unlike the rest of app.midi) because it's
-side-effect-free: no port is opened, nothing is read or written.
+before app.midi.service opens either one. Side-effect-free: no port is
+opened, nothing is read or written.
 """
 from __future__ import annotations
 
