@@ -2,118 +2,311 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>X32 AI Feedback Suppression</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%235b5bd6'/%3E%3Cpath d='M18 58 L34 36 L50 68 L66 28 L82 52' stroke='white' stroke-width='9' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; background: #fafafa; }
-    h1 { font-size: 1.4rem; }
-    h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.25rem; }
-    section { margin-bottom: 1.5rem; }
-    button { font-size: 0.95rem; padding: 0.4rem 0.9rem; cursor: pointer; margin-right: 0.5rem; }
-    select, input { font-size: 0.9rem; padding: 0.2rem; }
-    label { display: inline-block; min-width: 9rem; }
-    .row { margin-bottom: 0.5rem; }
-    .status { margin-top: 0.5rem; color: #444; font-size: 0.9rem; }
-    .status.error { color: #b00020; }
-    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
-    th, td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: left; }
-    th { background: #eee; }
-    tr.inserted { background: #eaffea; }
-    tr.bypassed { background: #fff8ea; }
-    #event-log { max-height: 220px; overflow-y: auto; background: #111; color: #ddd; font-family: monospace;
-      font-size: 0.75rem; padding: 0.5rem; }
-    #event-log div { white-space: pre-wrap; word-break: break-all; }
-    .channel-select { width: 2.5rem; }
+    :root {
+      color-scheme: light dark;
+      --bg: #f3f4f7;
+      --card-bg: #ffffff;
+      --border: #e3e4ea;
+      --text: #17181c;
+      --text-muted: #6b6d78;
+      --accent: #5b5bd6;
+      --accent-hover: #4949c4;
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --warning: #b45309;
+      --warning-bg: #fef3c7;
+      --danger: #dc2626;
+      --danger-bg: #fee2e2;
+      --idle-bg: #eceef2;
+      --hover: rgba(91, 91, 214, 0.06);
+      --radius: 0.65rem;
+      --shadow: 0 1px 2px rgba(17, 17, 26, 0.04), 0 4px 16px rgba(17, 17, 26, 0.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #131318;
+        --card-bg: #1b1c22;
+        --border: #2d2e37;
+        --text: #f1f2f6;
+        --text-muted: #999bab;
+        --accent: #8484ea;
+        --accent-hover: #9d9dee;
+        --success: #4ade80;
+        --success-bg: rgba(74, 222, 128, 0.14);
+        --warning: #fbbf24;
+        --warning-bg: rgba(251, 191, 36, 0.14);
+        --danger: #f87171;
+        --danger-bg: rgba(248, 113, 113, 0.14);
+        --idle-bg: #26272f;
+        --hover: rgba(132, 132, 234, 0.09);
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.3);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    header.topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.9rem 1.5rem;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header.topbar h1 {
+      font-size: 1.05rem;
+      font-weight: 650;
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge .dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; flex: none; }
+    .badge.status-connected { color: var(--success); background: var(--success-bg); }
+    .badge.status-disconnected { color: var(--danger); background: var(--danger-bg); }
+    .badge.status-pending { color: var(--text-muted); background: var(--idle-bg); }
+
+    main { padding: 1.5rem; max-width: 1180px; margin: 0 auto; display: grid; gap: 1.25rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1.25rem; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.25rem;
+    }
+    .card h2 {
+      margin: 0 0 1rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .field { margin-bottom: 0.7rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .field label { min-width: 7rem; font-size: 0.84rem; color: var(--text-muted); }
+    select, input[type=text], input[type=number] {
+      font: inherit;
+      font-size: 0.84rem;
+      padding: 0.4rem 0.55rem;
+      border-radius: 0.45rem;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+    }
+    select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    input[type=checkbox] { width: 1rem; height: 1rem; accent-color: var(--accent); }
+
+    .btn {
+      font: inherit;
+      font-size: 0.84rem;
+      font-weight: 550;
+      padding: 0.45rem 0.9rem;
+      border-radius: 0.45rem;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.05s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: transparent; border-color: var(--border); color: var(--text); }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-sm { padding: 0.28rem 0.6rem; font-size: 0.76rem; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-group { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+
+    .status { margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted); min-height: 1.1em; }
+    .status.error { color: var(--danger); }
+    .status.success { color: var(--success); }
+
+    .channel-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin: 0.9rem 0; }
+    .channel-count { font-size: 0.8rem; color: var(--text-muted); }
+    .channel-toolbar-controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .checkbox-field { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--text-muted); }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+    table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+    thead th {
+      position: sticky; top: 0;
+      background: var(--bg);
+      color: var(--text-muted);
+      font-weight: 650;
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--hover); }
+    tr.state-inserted td:first-child { box-shadow: inset 3px 0 0 var(--success); }
+    tr.state-bypassed td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+
+    .chip { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 650; white-space: nowrap; }
+    .chip.inserted { background: var(--success-bg); color: var(--success); }
+    .chip.bypassed { background: var(--warning-bg); color: var(--warning); }
+    .chip.idle { background: var(--idle-bg); color: var(--text-muted); }
+
+    .icon-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-muted); font-size: 0.95rem; line-height: 1;
+      padding: 0.25rem 0.45rem; border-radius: 0.35rem;
+    }
+    .icon-btn:hover { color: var(--danger); background: var(--danger-bg); }
+    .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; background: none; color: var(--text-muted); }
+    .num-input { width: 4.2rem; }
+
+    .event-log {
+      max-height: 260px; overflow-y: auto;
+      background: #0d0e12; color: #d7d8de;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.74rem;
+      border-radius: var(--radius);
+      padding: 0.75rem;
+    }
+    .event-log div { padding: 0.15rem 0; white-space: pre-wrap; word-break: break-all; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+    .event-log div:last-child { border-bottom: none; }
   </style>
 </head>
 <body>
-  <h1>X32 AI Feedback Suppression</h1>
+  <header class="topbar">
+    <h1>X32 AI Feedback Suppression</h1>
+    <span id="connection-badge" class="badge status-pending"><span class="dot"></span><span id="connection-badge-text">Checking…</span></span>
+  </header>
 
-  <section id="console-setup">
-    <h2>Console</h2>
-    <div class="row">
-      <label for="console-host">Console IP</label>
-      <input type="text" id="console-host" placeholder="10.10.0.142" style="width: 10rem;">
-      <label for="console-port" style="min-width: auto; margin-left: 0.5rem;">Port</label>
-      <input type="number" id="console-port" value="10023" style="width: 6rem;">
-      <button id="console-connect-btn">Connect</button>
-      <button id="console-disconnect-btn">Disconnect</button>
-    </div>
-    <div class="row">
-      <button id="console-search-btn">Search for Console</button>
-      <select id="console-search-results" style="min-width: 20rem;"></select>
-      <button id="console-use-result-btn">Use Selected</button>
-    </div>
-    <div id="console-status" class="status"></div>
-  </section>
+  <main>
+    <div class="grid-3">
+      <section class="card" id="console-setup">
+        <h2>Console</h2>
+        <div class="field">
+          <label for="console-host">IP address</label>
+          <input type="text" id="console-host" placeholder="10.10.0.142" style="width: 9.5rem;">
+          <label for="console-port" style="min-width: auto;">Port</label>
+          <input type="number" id="console-port" value="10023" style="width: 5.5rem;">
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-primary" id="console-connect-btn">Connect</button>
+          <button class="btn btn-secondary" id="console-disconnect-btn">Disconnect</button>
+        </div>
+        <div class="field">
+          <button class="btn btn-secondary" id="console-search-btn">Search for Console</button>
+        </div>
+        <div class="field">
+          <select id="console-search-results" style="flex: 1; min-width: 12rem;"></select>
+          <button class="btn btn-secondary btn-sm" id="console-use-result-btn">Use Selected</button>
+        </div>
+        <div id="console-status" class="status"></div>
+      </section>
 
-  <section id="device-setup">
-    <h2>Device Setup</h2>
-    <div class="row">
-      <label for="audio-input">Audio input</label>
-      <select id="audio-input"></select>
-    </div>
-    <div class="row">
-      <label for="audio-output">Audio output</label>
-      <select id="audio-output"></select>
-    </div>
-    <div class="row">
-      <label for="midi-input">MIDI input</label>
-      <select id="midi-input"></select>
-    </div>
-    <div class="row">
-      <label for="midi-output">MIDI output</label>
-      <select id="midi-output"></select>
-    </div>
-    <button id="rescan-devices-btn">Rescan Devices</button>
-    <button id="save-devices-btn">Save Devices</button>
-    <div id="device-status" class="status"></div>
-  </section>
+      <section class="card" id="device-setup">
+        <h2>Device Setup</h2>
+        <div class="field">
+          <label for="audio-input">Audio input</label>
+          <select id="audio-input" style="flex: 1;"></select>
+        </div>
+        <div class="field">
+          <label for="audio-output">Audio output</label>
+          <select id="audio-output" style="flex: 1;"></select>
+        </div>
+        <div class="field">
+          <label for="midi-input">MIDI input</label>
+          <select id="midi-input" style="flex: 1;"></select>
+        </div>
+        <div class="field">
+          <label for="midi-output">MIDI output</label>
+          <select id="midi-output" style="flex: 1;"></select>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" id="rescan-devices-btn">Rescan</button>
+          <button class="btn btn-primary" id="save-devices-btn">Save</button>
+        </div>
+        <div id="device-status" class="status"></div>
+      </section>
 
-  <section id="routing-panel">
-    <h2>Routing</h2>
-    <button id="snapshot-btn">Save Snapshot</button>
-    <button id="apply-btn">Apply Routing</button>
-    <button id="restore-btn">Restore Snapshot</button>
-    <button id="bypass-all-btn">Bypass All</button>
-    <button id="reinsert-all-btn">Re-insert All</button>
-    <div id="routing-status" class="status"></div>
-    <table id="channel-table">
-      <thead>
-        <tr>
-          <th></th><th>Ch</th><th>Card Slot</th><th>MIDI Slot</th><th>Notches</th>
-          <th>AI</th><th>Mode</th><th>Sensitivity</th><th>Bypass</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </section>
-
-  <section id="global-controls">
-    <h2>Global</h2>
-    <div class="row">
-      <label for="echo-toggle">Echo cancellation</label>
-      <input type="checkbox" id="echo-toggle">
-      <span id="echo-status" class="status" style="display:inline"></span>
+      <section class="card" id="global-controls">
+        <h2>Global</h2>
+        <div class="field">
+          <label for="echo-toggle">Echo cancellation</label>
+          <input type="checkbox" id="echo-toggle">
+        </div>
+        <div id="echo-status" class="status"></div>
+      </section>
     </div>
-  </section>
 
-  <section id="diagnostics">
-    <h2>Diagnostics</h2>
-    <button id="export-btn">Export Debug Bundle</button>
-    <div id="export-status" class="status"></div>
-    <h3 style="font-size:0.95rem;">Event log</h3>
-    <div id="event-log"></div>
-  </section>
+    <section class="card" id="routing-panel">
+      <h2>Routing</h2>
+      <div class="btn-group">
+        <button class="btn btn-secondary" id="snapshot-btn">Save Snapshot</button>
+        <button class="btn btn-primary" id="apply-btn">Apply Routing</button>
+        <button class="btn btn-secondary" id="restore-btn">Restore Snapshot</button>
+        <button class="btn btn-secondary" id="bypass-all-btn">Bypass All</button>
+        <button class="btn btn-secondary" id="reinsert-all-btn">Re-insert All</button>
+      </div>
+      <div id="routing-status" class="status"></div>
+
+      <div class="channel-toolbar">
+        <span id="channel-count" class="channel-count"></span>
+        <div class="channel-toolbar-controls">
+          <select id="add-channel-select"></select>
+          <label class="checkbox-field"><input type="checkbox" id="show-all-channels"> Show all 32</label>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="channel-table">
+          <thead>
+            <tr>
+              <th></th><th>Ch</th><th>State</th><th>Card Slot</th><th>MIDI Slot</th><th>Notches</th>
+              <th>AI</th><th>Mode</th><th>Sensitivity</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="diagnostics">
+      <h2>Diagnostics</h2>
+      <div class="btn-group">
+        <button class="btn btn-secondary" id="export-btn">Export Debug Bundle</button>
+      </div>
+      <div id="export-status" class="status"></div>
+      <div id="event-log" class="event-log"></div>
+    </section>
+  </main>
 
   <script>
     const el = (id) => document.getElementById(id);
 
-    function setStatus(id, text, isError = false) {
+    function setStatus(id, text, variant = "") {
       const node = el(id);
       node.textContent = text;
-      node.classList.toggle("error", isError);
+      node.classList.remove("error", "success");
+      if (variant) node.classList.add(variant);
     }
 
     async function api(path, options = {}) {
@@ -126,6 +319,12 @@
         throw new Error(body.error || `Server returned ${response.status}`);
       }
       return body;
+    }
+
+    function setConnectionBadge(connected, label) {
+      const badge = el("connection-badge");
+      badge.className = `badge ${connected ? "status-connected" : "status-disconnected"}`;
+      el("connection-badge-text").textContent = label || (connected ? "Connected" : "Disconnected");
     }
 
     function populateSelect(select, items, selectedName) {
@@ -152,9 +351,9 @@
         populateSelect(el("midi-input"), data.midi_inputs, data.selected.midi_input_port);
         populateSelect(el("midi-output"), data.midi_outputs, data.selected.midi_output_port);
         const errors = [data.audio_error, data.midi_error].filter(Boolean);
-        setStatus("device-status", errors.length ? errors.join("; ") : "Devices loaded.", errors.length > 0);
+        setStatus("device-status", errors.length ? errors.join("; ") : "Devices loaded.", errors.length ? "error" : "success");
       } catch (err) {
-        setStatus("device-status", `Failed to load devices: ${err}`, true);
+        setStatus("device-status", `Failed to load devices: ${err}`, "error");
       }
     }
 
@@ -164,19 +363,21 @@
         if (data.connected) {
           el("console-host").value = data.console_ip || "";
           el("console-port").value = data.console_port || 10023;
-          setStatus("console-status", `Connected: ${data.xinfo.name || ""} ${data.xinfo.model || ""} (firmware ${data.xinfo.version || "?"})`);
+          setStatus("console-status", `Connected: ${data.xinfo.name || ""} ${data.xinfo.model || ""} (firmware ${data.xinfo.version || "?"})`, "success");
+          setConnectionBadge(true, "Console connected");
         } else {
           setStatus("console-status", "Not connected.");
+          setConnectionBadge(false, "Console disconnected");
         }
       } catch (err) {
-        setStatus("console-status", `Failed to load console status: ${err}`, true);
+        setStatus("console-status", `Failed to load console status: ${err}`, "error");
       }
     }
 
     el("console-connect-btn").addEventListener("click", async () => {
       const host = el("console-host").value.trim();
       if (!host) {
-        setStatus("console-status", "Enter a console IP first.", true);
+        setStatus("console-status", "Enter a console IP first.", "error");
         return;
       }
       setStatus("console-status", `Connecting to ${host}...`);
@@ -185,9 +386,11 @@
           method: "POST",
           body: JSON.stringify({ host, port: parseInt(el("console-port").value, 10) || 10023 }),
         });
-        setStatus("console-status", `Connected: ${data.xinfo.name || ""} ${data.xinfo.model || ""} (firmware ${data.xinfo.version || "?"})`);
+        setStatus("console-status", `Connected: ${data.xinfo.name || ""} ${data.xinfo.model || ""} (firmware ${data.xinfo.version || "?"})`, "success");
+        setConnectionBadge(true, "Console connected");
       } catch (err) {
-        setStatus("console-status", `Connect failed: ${err}`, true);
+        setStatus("console-status", `Connect failed: ${err}`, "error");
+        setConnectionBadge(false, "Console disconnected");
       }
     });
 
@@ -195,8 +398,9 @@
       try {
         await api("/api/console/disconnect", { method: "POST" });
         setStatus("console-status", "Disconnected.");
+        setConnectionBadge(false, "Console disconnected");
       } catch (err) {
-        setStatus("console-status", `Disconnect failed: ${err}`, true);
+        setStatus("console-status", `Disconnect failed: ${err}`, "error");
       }
     });
 
@@ -216,9 +420,9 @@
           option.textContent = `${found.host} -- ${found.name} (${found.model}, firmware ${found.version})`;
           select.appendChild(option);
         }
-        setStatus("console-status", `Found ${data.consoles.length} console(s).`);
+        setStatus("console-status", `Found ${data.consoles.length} console(s).`, "success");
       } catch (err) {
-        setStatus("console-status", `Search failed: ${err}`, true);
+        setStatus("console-status", `Search failed: ${err}`, "error");
       }
     });
 
@@ -243,29 +447,90 @@
             midi_output_port: el("midi-output").value || null,
           }),
         });
-        setStatus("device-status", "Saved.");
+        setStatus("device-status", "Saved.", "success");
       } catch (err) {
-        setStatus("device-status", `Save failed: ${err}`, true);
+        setStatus("device-status", `Save failed: ${err}`, "error");
       }
     });
 
-    function channelRow(channel) {
+    // -- Channel table: not all 32 channels are shown at once. A small
+    // visible set (default 1-4) is remembered in localStorage; channels
+    // that are actually in play this session (inserted, or holding a Card
+    // slot from a previous insert) are always shown regardless, so an
+    // active channel can never silently disappear from view. "Show all
+    // 32" is an escape hatch for anyone who really does want the full grid.
+    const VISIBLE_CHANNELS_KEY = "x32_visible_channels";
+    const DEFAULT_VISIBLE_CHANNELS = [1, 2, 3, 4];
+
+    function loadVisibleChannels() {
+      try {
+        const raw = localStorage.getItem(VISIBLE_CHANNELS_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return new Set(Array.isArray(parsed) && parsed.length ? parsed : DEFAULT_VISIBLE_CHANNELS);
+      } catch {
+        return new Set(DEFAULT_VISIBLE_CHANNELS);
+      }
+    }
+
+    function saveVisibleChannels() {
+      localStorage.setItem(VISIBLE_CHANNELS_KEY, JSON.stringify(Array.from(visibleChannels)));
+    }
+
+    let visibleChannels = loadVisibleChannels();
+    let showAllChannels = false;
+    let latestChannels = [];
+
+    function channelRow(channel, isActive) {
       const tr = document.createElement("tr");
       tr.dataset.channel = channel.index;
-      tr.className = channel.inserted ? "inserted" : "bypassed";
+      tr.className = channel.card_out_slot === null ? "" : (channel.inserted ? "state-inserted" : "state-bypassed");
 
-      const select = document.createElement("td");
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.className = "channel-select";
-      select.appendChild(checkbox);
-      tr.appendChild(select);
+      const hideCell = document.createElement("td");
+      const hideBtn = document.createElement("button");
+      hideBtn.className = "icon-btn";
+      hideBtn.textContent = "✕";
+      hideBtn.title = isActive ? "Active channels stay visible" : "Hide from view";
+      hideBtn.disabled = isActive;
+      hideBtn.addEventListener("click", () => {
+        visibleChannels.delete(channel.index);
+        saveVisibleChannels();
+        renderChannelTable();
+      });
+      hideCell.appendChild(hideBtn);
+      tr.appendChild(hideCell);
 
       const cell = (text) => { const td = document.createElement("td"); td.textContent = text; return td; };
       tr.appendChild(cell(channel.index));
+
+      const stateCell = document.createElement("td");
+      const chip = document.createElement("span");
+      if (channel.card_out_slot === null) {
+        chip.className = "chip idle";
+        chip.textContent = "Idle";
+      } else if (channel.inserted) {
+        chip.className = "chip inserted";
+        chip.textContent = "Inserted";
+      } else {
+        chip.className = "chip bypassed";
+        chip.textContent = "Bypassed";
+      }
+      stateCell.appendChild(chip);
+      tr.appendChild(stateCell);
+
       tr.appendChild(cell(channel.card_out_slot ?? "-"));
       tr.appendChild(cell(channel.midi_slot ?? "-"));
       tr.appendChild(cell(channel.active_notch_count));
+
+      const selectCell = document.createElement("td");
+      const selectCheckbox = document.createElement("input");
+      selectCheckbox.type = "checkbox";
+      selectCheckbox.className = "channel-select";
+      selectCell.appendChild(selectCheckbox);
+      // Reinsert the apply-selection checkbox before the Ch column so it
+      // reads left-to-right as [hide][select][ch]... -- kept as a
+      // separate cell rather than folded into hide to keep each
+      // control's purpose unambiguous.
+      tr.insertBefore(selectCell, tr.children[1]);
 
       const aiCell = document.createElement("td");
       const aiCheckbox = document.createElement("input");
@@ -278,7 +543,7 @@
             body: JSON.stringify({ enabled: aiCheckbox.checked }),
           });
         } catch (err) {
-          setStatus("routing-status", `AI toggle failed: ${err}`, true);
+          setStatus("routing-status", `AI toggle failed: ${err}`, "error");
           aiCheckbox.checked = !aiCheckbox.checked;
         }
       });
@@ -301,7 +566,7 @@
             body: JSON.stringify({ mode: modeSelect.value }),
           });
         } catch (err) {
-          setStatus("routing-status", `Mode update failed: ${err}`, true);
+          setStatus("routing-status", `Mode update failed: ${err}`, "error");
         }
       });
       modeCell.appendChild(modeSelect);
@@ -310,10 +575,10 @@
       const sensitivityCell = document.createElement("td");
       const sensitivityInput = document.createElement("input");
       sensitivityInput.type = "number";
+      sensitivityInput.className = "num-input";
       sensitivityInput.min = "0";
       sensitivityInput.max = "1";
       sensitivityInput.step = "0.05";
-      sensitivityInput.style.width = "4rem";
       sensitivityInput.value = channel.sensitivity;
       sensitivityInput.addEventListener("change", async () => {
         try {
@@ -322,7 +587,7 @@
             body: JSON.stringify({ sensitivity: parseFloat(sensitivityInput.value) }),
           });
         } catch (err) {
-          setStatus("routing-status", `Sensitivity update failed: ${err}`, true);
+          setStatus("routing-status", `Sensitivity update failed: ${err}`, "error");
         }
       });
       sensitivityCell.appendChild(sensitivityInput);
@@ -330,6 +595,7 @@
 
       const bypassCell = document.createElement("td");
       const bypassBtn = document.createElement("button");
+      bypassBtn.className = "btn btn-secondary btn-sm";
       bypassBtn.textContent = channel.inserted ? "Bypass" : "Insert";
       bypassBtn.disabled = channel.card_out_slot === null;
       bypassBtn.addEventListener("click", async () => {
@@ -337,7 +603,7 @@
           await api(`/api/channels/${channel.index}/bypass`, { method: "POST" });
           await loadChannels();
         } catch (err) {
-          setStatus("routing-status", `Bypass failed: ${err}`, true);
+          setStatus("routing-status", `Bypass failed: ${err}`, "error");
         }
       });
       bypassCell.appendChild(bypassBtn);
@@ -346,16 +612,67 @@
       return tr;
     }
 
+    function updateAddChannelSelect(shown) {
+      const select = el("add-channel-select");
+      const shownIndexes = new Set(shown.map((c) => c.index));
+      select.innerHTML = "";
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "+ Add channel…";
+      select.appendChild(placeholder);
+      for (const channel of latestChannels) {
+        if (shownIndexes.has(channel.index)) continue;
+        const option = document.createElement("option");
+        option.value = channel.index;
+        option.textContent = `Channel ${channel.index}`;
+        select.appendChild(option);
+      }
+      select.disabled = showAllChannels || select.children.length <= 1;
+    }
+
+    function renderChannelTable() {
+      const tbody = document.querySelector("#channel-table tbody");
+      tbody.innerHTML = "";
+
+      const active = new Set(
+        latestChannels.filter((c) => c.inserted || c.card_out_slot !== null).map((c) => c.index)
+      );
+      const toShow = showAllChannels
+        ? latestChannels
+        : latestChannels.filter((c) => visibleChannels.has(c.index) || active.has(c.index));
+
+      for (const channel of toShow) {
+        tbody.appendChild(channelRow(channel, active.has(channel.index)));
+      }
+
+      el("channel-count").textContent = showAllChannels
+        ? `Showing all ${latestChannels.length} channels.`
+        : `Showing ${toShow.length} of ${latestChannels.length} channels.`;
+
+      updateAddChannelSelect(toShow);
+    }
+
+    el("add-channel-select").addEventListener("change", () => {
+      const select = el("add-channel-select");
+      const value = parseInt(select.value, 10);
+      if (!value) return;
+      visibleChannels.add(value);
+      saveVisibleChannels();
+      renderChannelTable();
+    });
+
+    el("show-all-channels").addEventListener("change", () => {
+      showAllChannels = el("show-all-channels").checked;
+      renderChannelTable();
+    });
+
     async function loadChannels() {
       try {
         const data = await api("/api/channels");
-        const tbody = document.querySelector("#channel-table tbody");
-        tbody.innerHTML = "";
-        for (const channel of data.channels) {
-          tbody.appendChild(channelRow(channel));
-        }
+        latestChannels = data.channels;
+        renderChannelTable();
       } catch (err) {
-        setStatus("routing-status", `Failed to load channels: ${err}`, true);
+        setStatus("routing-status", `Failed to load channels: ${err}`, "error");
       }
     }
 
@@ -367,24 +684,24 @@
     el("snapshot-btn").addEventListener("click", async () => {
       try {
         const data = await api("/api/routing/snapshot", { method: "POST" });
-        setStatus("routing-status", `Snapshot saved: ${data.name}`);
+        setStatus("routing-status", `Snapshot saved: ${data.name}`, "success");
       } catch (err) {
-        setStatus("routing-status", `Snapshot failed: ${err}`, true);
+        setStatus("routing-status", `Snapshot failed: ${err}`, "error");
       }
     });
 
     el("apply-btn").addEventListener("click", async () => {
       const channels = selectedChannels();
       if (!channels.length) {
-        setStatus("routing-status", "Select at least one channel first.", true);
+        setStatus("routing-status", "Select at least one channel first.", "error");
         return;
       }
       try {
         await api("/api/routing/apply", { method: "POST", body: JSON.stringify({ channels }) });
-        setStatus("routing-status", `Applied routing for channels: ${channels.join(", ")}`);
+        setStatus("routing-status", `Applied routing for channels: ${channels.join(", ")}`, "success");
         await loadChannels();
       } catch (err) {
-        setStatus("routing-status", `Apply failed: ${err}`, true);
+        setStatus("routing-status", `Apply failed: ${err}`, "error");
       }
     });
 
@@ -393,10 +710,10 @@
         const data = await api("/api/routing/restore", { method: "POST" });
         setStatus("routing-status", data.mismatches.length
           ? `Restored with ${data.mismatches.length} mismatch(es) -- see event log`
-          : "Restored.");
+          : "Restored.", data.mismatches.length ? "error" : "success");
         await loadChannels();
       } catch (err) {
-        setStatus("routing-status", `Restore failed: ${err}`, true);
+        setStatus("routing-status", `Restore failed: ${err}`, "error");
       }
     });
 
@@ -405,7 +722,7 @@
         await api("/api/routing/bypass_all", { method: "POST", body: JSON.stringify({ bypass: true }) });
         await loadChannels();
       } catch (err) {
-        setStatus("routing-status", `Bypass all failed: ${err}`, true);
+        setStatus("routing-status", `Bypass all failed: ${err}`, "error");
       }
     });
 
@@ -414,7 +731,7 @@
         await api("/api/routing/bypass_all", { method: "POST", body: JSON.stringify({ bypass: false }) });
         await loadChannels();
       } catch (err) {
-        setStatus("routing-status", `Re-insert all failed: ${err}`, true);
+        setStatus("routing-status", `Re-insert all failed: ${err}`, "error");
       }
     });
 
@@ -427,9 +744,9 @@
         });
         setStatus("echo-status", data.reference_card_channels && data.reference_card_channels.length
           ? `Reference: Card ${data.reference_card_channels.join(", ")}`
-          : (enabled ? "Enabled." : "Disabled."));
+          : (enabled ? "Enabled." : "Disabled."), "success");
       } catch (err) {
-        setStatus("echo-status", `Failed: ${err}`, true);
+        setStatus("echo-status", `Failed: ${err}`, "error");
         el("echo-toggle").checked = !enabled;
       }
     });
@@ -452,9 +769,9 @@
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        setStatus("export-status", `Downloaded ${filename}`);
+        setStatus("export-status", `Downloaded ${filename}`, "success");
       } catch (err) {
-        setStatus("export-status", `Export failed: ${err}`, true);
+        setStatus("export-status", `Export failed: ${err}`, "error");
       }
     });
 

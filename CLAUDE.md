@@ -219,10 +219,16 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   path — a bare `create_app()` call with no path updates the in-memory config
   only, so tests/ad-hoc runs never write a stray `config.json`).
 - **Routing panel** (implemented, `/api/routing/*` + `/api/channels/*`):
-  32-channel grid with a per-channel select checkbox, Save Snapshot / Apply
+  channel grid with a per-channel select checkbox, Save Snapshot / Apply
   Routing / Restore / Bypass All / Re-insert All buttons, per-channel rows
   showing card-out slot, active notch count, AI toggle, MIDI slot, mode,
-  sensitivity, and a bypass/insert button. Channel *names/colors* pulled live
+  sensitivity, and a bypass/insert button. **Shows 4 channels by default, not
+  all 32** — a "+ Add channel" dropdown brings any specific channel into view,
+  a "Show all 32" checkbox is the escape hatch back to the full grid, and the
+  visible set persists in the browser's `localStorage` across reloads. A
+  channel that's actually in play (inserted, or still holding a Card slot from
+  earlier in the session) is always shown regardless of this filter, so it can
+  never silently disappear from view. Channel *names/colors* pulled live
   from the console via scribble-strip reads are not wired into this grid yet
   (`app/osc/scribble_strip.py` exists and is used for writes, just not surfaced
   in `/api/channels` reads) — rows currently show channel number only.
