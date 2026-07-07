@@ -93,6 +93,12 @@ class OscConnection:
 
         self._pending_lock = threading.Lock()
         self._pending: dict[str, list[queue.Queue]] = {}
+        # Wildcard listeners: each registered queue receives EVERY incoming
+        # (address, args) message regardless of address -- the discovery
+        # primitive for addresses we don't know in advance (see
+        # add_sniffer/remove_sniffer and app.osc.protocol_discovery.
+        # sniff_pushed_changes).
+        self._sniffers: list[queue.Queue] = []
 
         self._state_lock = threading.Lock()
         self._connected = False
@@ -350,6 +356,23 @@ class OscConnection:
                 if q in waiters:
                     waiters.remove(q)
 
+    def add_sniffer(self, q: queue.Queue) -> None:
+        """Register a wildcard listener: q receives every incoming
+        (address, args) message on this connection, whatever its address --
+        the primitive for discovering addresses this project doesn't know
+        yet. With the /xremote keepalive active (always, on a connected
+        OscConnection), the console pushes address+value for anything
+        changed on the console surface, so a sniffer registered while a
+        human changes something on the desk reveals exactly which address
+        that control lives at. Pair with remove_sniffer in a finally."""
+        with self._pending_lock:
+            self._sniffers.append(q)
+
+    def remove_sniffer(self, q: queue.Queue) -> None:
+        with self._pending_lock:
+            if q in self._sniffers:
+                self._sniffers.remove(q)
+
     # -- background threads -------------------------------------------------
     def _recv_loop(self) -> None:
         assert self._sock is not None
@@ -376,9 +399,12 @@ class OscConnection:
 
             with self._pending_lock:
                 waiters = list(self._pending.get(msg.address, []))
+                sniffers = list(self._sniffers)
             for q in waiters:
                 if not q.full():
                     q.put_nowait(tuple(msg.params))
+            for q in sniffers:
+                q.put_nowait((msg.address, tuple(msg.params)))
 
     def _keepalive_loop(self) -> None:
         while not self._stop_event.wait(self.xremote_interval_sec):

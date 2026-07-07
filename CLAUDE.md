@@ -215,10 +215,12 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 - **Console feedback**: write channel scribble-strip colors/names to show per-channel
   state (inserted vs bypassed, AI active/suppressing). Restore names/colors on disengage
   (they're in the snapshot).
-- **Assign-set provisioning**: `/config/ctrl/A|B/enc|btn/N` — read/store existing Set A/B
-  assignments first, then write MIDI-type assignments. Exact string encoding of MIDI
-  assignments: verify against the Patrick-Gilles Maillot unofficial X32 OSC document,
-  or empirically (assign one on the desk, query the parameter, copy the format).
+- **Assign-set provisioning**: read/store existing Set A/B assignments first, then
+  write MIDI-type assignments. **The `/config/ctrl/A|B/enc|btn/N` address shape this
+  project guessed is wrong on real hardware** — all 24 addresses got no reply on a
+  live 4.13 console (see "Open items to verify"); discover the real shape + value
+  format empirically via `app.tools.diagnose_console`'s sniff step (change an
+  assignment on the desk while it records what the console pushes over `/xremote`).
 
 ### 3. MIDI service
 - **Port selection is user-configurable, not hardcoded.** The app must not assume
@@ -360,26 +362,43 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   Set A/B assign-set snapshot, all 32 channels' scribble-strip configs --
   `app.osc.protocol_discovery.capture_full_state`), then (2) walks through each
   still-open item that needs a human to change something on the console while
-  the tool watches for the resulting raw value (`watch_until_changed`: reads a
-  baseline, polls until it differs or a timeout elapses) -- currently wired up
-  for the MIDI assign-set format (still open) and the Main L/R echo-reference
-  value (already confirmed on one console, see below -- this step now serves
-  as a cross-check on a different console/firmware), plus a
-  `--watch ADDRESS [ADDRESS ...]` escape hatch for anything else not hardcoded
-  into the wizard (e.g. one of the inferred-but-unconfirmed routing bank values
-  below). It also attempts a best-effort `/meters` capture (`capture_meters_sample`
-  + `OscConnection.listen()`, which collects every reply on an address over a
-  window instead of stopping at the first one like `query()`/`query_many()`),
-  saving whatever raw bytes come back for offline decoding. Everything lands in
-  one timestamped JSON report under `<log_dir>/protocol_discovery/`, and the
-  tool's final summary says exactly which constant to update with whatever got
-  confirmed that run. `--passive-only` skips every interactive step (useful for
-  a quick capture without standing at the console); each guided watch step is
-  individually Ctrl+C-skippable.
-- MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical
-  (or `app.tools.diagnose_console`'s guided watch step, above).
-- `/meters` blob layout for the meters we need (or `app.tools.diagnose_console`'s
-  default best-effort raw capture step, above, for offline decoding).
+  the tool watches. Two watching mechanisms, chosen per item: `watch_until_changed`
+  (reads a baseline on *known* addresses, polls until one differs -- used for the
+  Main L/R echo-reference cross-check and the `--watch ADDRESS [ADDRESS ...]`
+  escape hatch), and `sniff_pushed_changes` (+`OscConnection.add_sniffer`), which
+  records **every** message the console pushes via the active `/xremote`
+  subscription regardless of address -- the discovery mechanism for addresses
+  this project doesn't know yet, used for the assign-set step since polling
+  guessed addresses provably can't find them (see below). A sniff step's Ctrl+C
+  stops early but *keeps* what was captured -- never throws away data a human
+  stood at a console to produce. It also attempts a best-effort `/meters` capture
+  (`capture_meters_sample` + `OscConnection.listen()`, which collects every reply
+  on an address over a window instead of stopping at the first one like
+  `query()`/`query_many()`), saving whatever raw bytes come back for offline
+  decoding. Everything lands in one timestamped JSON report under
+  `<log_dir>/protocol_discovery/`, and the tool's final summary says exactly
+  which constant to update with whatever got confirmed that run. `--passive-only`
+  skips every interactive step (useful for a quick capture without standing at
+  the console); each guided step is individually Ctrl+C-skippable.
+- **MIDI-assignment addresses: the guessed `/config/ctrl/A|B/enc|btn/N` shape is
+  wrong on real hardware (2026-07-07, firmware 4.13)** -- all 24 such addresses
+  returned *no reply at all* to passive queries on a live console (not "empty
+  value"; no reply, same as any unrecognized address). The spec'd shape came from
+  this project's own reading of the assign section, not from a confirmed source,
+  and evidently doesn't exist in the parameter tree. `app/osc/assign_set.py`
+  still uses it (its snapshot/restore degrades safely to a no-op when every
+  read returns None), pending discovery of the real shape via
+  `app.tools.diagnose_console`'s sniff step: change a Set A/B assignment on the
+  console while it records what the console pushes over `/xremote` -- whatever
+  address the console actually uses shows up verbatim, no guessing required.
+- `/meters` blob layout for the meters we need. A first capture attempt
+  (2026-07-07, firmware 4.13) sending a plain int subscribe *to* `/meters/1`
+  got zero replies -- `capture_meters_sample` now uses the documented form
+  instead (send the parent `/meters` address with the wanted blob path as a
+  string argument, e.g. `/meters ,s "/meters/1"`; the console then streams
+  blobs on that path for ~10s). That form is from Maillot's doc, not yet
+  confirmed against our own hardware -- rerun `app.tools.diagnose_console`
+  to test it.
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
 - **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
   from two sources: (1) a real console scene (`.scn`) file dump, and (2)
