@@ -152,3 +152,82 @@ def test_start_without_configured_port_raises(diagnostics, app_state):
     service = _make_service(diagnostics, app_state)
     with pytest.raises(ValueError):
         service.start()
+
+
+# -- console-side provisioning (assign-set writes) ---------------------------
+
+
+def _make_osc_service(fake_x32, diagnostics, app_state) -> MidiService:
+    from app.osc.connection import OscConnection
+
+    osc = OscConnection(
+        host="127.0.0.1",
+        port=fake_x32.port,
+        diagnostics=diagnostics,
+        state=app_state,
+        timeout_sec=1.0,
+        xremote_interval_sec=0.5,
+    )
+    osc.connect()
+    config = AppConfig(midi_channel=16)
+    return MidiService(config=config, diagnostics=diagnostics, state=app_state, osc=osc)
+
+
+def test_select_channel_provisions_console_controls(fake_x32, diagnostics, app_state):
+    service = _make_osc_service(fake_x32, diagnostics, app_state)
+    try:
+        assignment = service.select_channel(9)  # slot 1 -> Set A, index 1
+        assert assignment.slot == 1
+        # Sensitivity encoder = CC 11, AI button = CC 1, insert/bypass = CC 21,
+        # all on the configured MIDI channel 16, buttons as "Midi Push" (MC).
+        assert fake_x32.extra_responses["/config/userctrl/A/enc/1"] == ("MC16011",)
+        assert fake_x32.extra_responses["/config/userctrl/A/btn/5"] == ("MC16001",)
+        assert fake_x32.extra_responses["/config/userctrl/A/btn/9"] == ("MC16021",)
+    finally:
+        service.osc.close()
+
+
+def test_select_channel_slot_5_provisions_set_b(fake_x32, diagnostics, app_state):
+    service = _make_osc_service(fake_x32, diagnostics, app_state)
+    try:
+        for ch in range(1, 6):
+            service.select_channel(ch)  # channel 5 lands in slot 5 -> Set B, index 1
+        assert fake_x32.extra_responses["/config/userctrl/B/enc/1"] == ("MC16015",)
+        assert fake_x32.extra_responses["/config/userctrl/B/btn/5"] == ("MC16005",)
+        assert fake_x32.extra_responses["/config/userctrl/B/btn/9"] == ("MC16025",)
+    finally:
+        service.osc.close()
+
+
+def test_provisioning_failure_is_nonfatal(monkeypatch, fake_x32, diagnostics, app_state):
+    service = _make_osc_service(fake_x32, diagnostics, app_state)
+    monkeypatch.setattr(service.osc, "send", lambda *a, **k: None)  # writes never land
+    try:
+        assignment = service.select_channel(9)
+        # Selection still succeeds; the failure is logged, not raised.
+        assert assignment is not None
+        assert app_state.channels[9].midi_slot == 1
+        events = diagnostics.get_recent(10)
+        assert any(e["category"] == "error" for e in events)
+    finally:
+        service.osc.close()
+
+
+def test_deselect_channel_restores_snapshot_values(fake_x32, diagnostics, app_state):
+    app_state.set_assign_set_snapshot({
+        "/config/userctrl/A/enc/1": ("S0000",),
+        "/config/userctrl/A/btn/5": ("Mc00000",),
+        "/config/userctrl/A/btn/9": None,  # never answered at snapshot time -- left alone
+    })
+    service = _make_osc_service(fake_x32, diagnostics, app_state)
+    try:
+        service.select_channel(9)
+        assert fake_x32.extra_responses["/config/userctrl/A/enc/1"] == ("MC16011",)
+
+        service.deselect_channel(9)
+        assert fake_x32.extra_responses["/config/userctrl/A/enc/1"] == ("S0000",)
+        assert fake_x32.extra_responses["/config/userctrl/A/btn/5"] == ("Mc00000",)
+        # No snapshot value -> untouched (still holding the provisioned value).
+        assert fake_x32.extra_responses["/config/userctrl/A/btn/9"] == ("MC16021",)
+    finally:
+        service.osc.close()

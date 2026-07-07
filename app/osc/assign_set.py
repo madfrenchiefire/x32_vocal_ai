@@ -19,12 +19,24 @@ not yet pinned down -- both fields incremented together in the observed
 data, so either reading fits. A button read `'Mc00000'` with a *lowercase*
 'c', so letter case apparently encodes an assignment sub-type (CC vs
 CC-toggle vs note..., un-decoded). `'S0000'`/`'S5000'`/`'X000'` are other
-assignment types, un-decoded. This module therefore still reads, writes,
-and restores values as opaque data -- it does not construct or interpret
-them. Only wire a real constructed value into app.midi.service's
-provisioning step once the digit positions are confirmed (assign a known,
-*asymmetric* CC + channel pair on the desk -- e.g. CC 7 on channel 16 --
-and read the string).
+assignment types, un-decoded.
+
+**MIDI-CC value format decoded (2026-07-07)** by matching the sniffed
+strings against a screenshot of the console's own Edit Assigns screen for
+the same state: Encoder 2 = "Midi / Ctrl Chg / Channel 02 / 1" read
+`'MC02001'` and Encoder 3 = "Channel 03 / 2" read `'MC03002'`, giving
+
+    'M' + ('C' push | 'c' toggle) + <MIDI channel, 2 digits, 1-based>
+        + <CC number, 3 digits>
+
+with the case of the second letter matching Button 5 ("Midi Push",
+`'MC01000'`) vs Button 6 ("Midi Toggle", `'Mc00000'`).
+:func:`midi_cc_value` constructs these; snapshot/restore still treats
+values as opaque. One observed quirk feeding the always-readback-verify
+rule: two controls whose GUI showed "Channel 01" pushed a channel field of
+`'00'` (probably the console's internal default before the channel
+dropdown is first touched), so a write must be confirmed by readback
+(write_assignment already does) rather than assumed.
 
 Set C is off-limits per CLAUDE.md's core design principle #4 -- VALID_SETS
 only ever contains "A" and "B", and there is no function here that can
@@ -72,6 +84,21 @@ def all_assign_set_addresses() -> list[str]:
         addrs += [encoder_addr(set_name, i) for i in range(1, NUM_ENCODERS_PER_SET + 1)]
         addrs += [button_addr(set_name, i) for i in BUTTON_INDICES]
     return addrs
+
+
+def midi_cc_value(midi_channel: int, cc: int, toggle: bool = False) -> str:
+    """Construct a MIDI-Ctrl-Chg assignment string in the decoded format
+    (see module docstring): e.g. midi_cc_value(16, 11) == 'MC16011'.
+    toggle=True produces the lowercase-'c' "Midi Toggle" variant; the
+    default is "Midi Push" (CC 127 on press / 0 on release), which is what
+    this app's own CC dispatch expects for buttons -- every press sends a
+    127 -- whereas a console-side Toggle would only send 127 on alternate
+    presses, halving the app's toggle rate."""
+    if not 1 <= midi_channel <= 16:
+        raise ValueError(f"midi_channel must be 1-16, got {midi_channel}")
+    if not 0 <= cc <= 127:
+        raise ValueError(f"cc must be 0-127, got {cc}")
+    return f"M{'c' if toggle else 'C'}{midi_channel:02d}{cc:03d}"
 
 
 def snapshot_assign_sets(

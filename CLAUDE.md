@@ -241,7 +241,9 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   | A | Sensitivity, slots 1–4 (CC 11–14) | AI on/off, slots 1–4 (CC 1–4) | Insert/bypass, slots 1–4 |
   | B | Sensitivity, slots 5–8 (CC 15–18) | AI on/off, slots 5–8 (CC 5–8) | Insert/bypass, slots 5–8 |
 
-  (Insert/bypass CC numbers TBD — pick a clean contiguous range, e.g. CC 21–28.)
+  (Insert/bypass CCs finalized as 21–24 (Set A) / 25–28 (Set B) — `app/midi/slots.py`.
+  On the console each set's physical controls are 4 encoders + buttons numbered
+  5–12, so the table's "Btn 1–4" = console btn/5–8 and "Btn 5–8" = btn/9–12.)
 - Selecting a channel grabs the lowest free slot and provisions its controls via OSC;
   deselecting frees the slot. Channels beyond 8 may still be processed but are
   app-controlled only (configurable: allow or hard-cap at 8).
@@ -336,9 +338,11 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
    (device enumeration/selection) is built.
 2. **OSC + MIDI control service** — done: connect, snapshot, apply/restore
    routing, per-channel bypass, Set A/B slot lifecycle, MIDI listener,
-   scribble-strip feedback. (Set A/B's actual console-side provisioning,
-   `app/osc/assign_set.py`, is still deliberately not wired to a live write —
-   see the MIDI-assignment string format open item below.)
+   scribble-strip feedback, and (as of the userctrl address/value
+   confirmations below) live console-side Set A/B provisioning: selecting a
+   channel writes its slot's sensitivity-encoder + AI-button +
+   insert/bypass-button MIDI assignments to the console, deselecting
+   restores them from the connect-time snapshot.
 3. **Heuristic detection + notch filter bank** — done (`app/audio/filters.py`,
    `app/audio/detection.py`).
 4. **Echo cancellation** — done (`app/audio/echo_cancellation.py`): NLMS
@@ -391,15 +395,24 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   confirmed shape. **Button numbering confirmed by a second sniff the same
   day**: button assignment changes pushed `/config/userctrl/A/btn/5` and
   `/btn/6` (btn/5-12; 5 and 6 observed directly, 7-12 by the now-verified
-  pattern). Still open within this item: which digit group of the `'MC.....'`
-  string is the CC number vs the MIDI channel — the second sniff read
-  `'MC01000'`/`'MC02001'`/`'MC03002'` off encoders 1-3, where both candidate
-  fields increment together, so either reading fits; assign a known,
-  *asymmetric* CC + channel pair (e.g. CC 7 on channel 16) during the sniff
-  step to pin it down before constructing assignment values in
-  `app.midi.service._provision_slot`. Also observed: a button value
-  `'Mc00000'` with lowercase 'c' — letter case apparently encodes an
-  assignment sub-type (CC vs CC-toggle vs note...), un-decoded.
+  pattern). **Value format decoded (2026-07-07)** by matching that sniff
+  against a screenshot of the console's own Edit Assigns screen for the same
+  state: `'M'` + (`'C'` = Midi Push | `'c'` = Midi Toggle) + 2-digit 1-based
+  MIDI channel + 3-digit CC number (Encoder 2 = "Ctrl Chg / Channel 02 / 1" ↔
+  `'MC02001'`, Encoder 3 = "Channel 03 / 2" ↔ `'MC03002'`; Button 5 "Midi
+  Push" ↔ `'MC…'` vs Button 6 "Midi Toggle" ↔ `'Mc…'`). Implemented as
+  `app.osc.assign_set.midi_cc_value()`, and
+  `app.midi.service._provision_slot` now actually writes each selected
+  slot's three console controls (sensitivity encoder, AI button,
+  insert/bypass button — buttons as Midi *Push*, since the app's CC dispatch
+  acts on every 127 and a console-side Toggle would only send 127 on
+  alternate presses); deselecting restores those controls from the
+  connect-time snapshot. One caution kept in the code: two controls whose
+  GUI showed "Channel 01" pushed a channel field of `'00'` (likely the
+  console's untouched-default internal value), so writes are always
+  readback-verified rather than assumed. Non-Ctrl-Chg assignment strings
+  (`'S0000'`, `'X000'`, notes, program changes) remain un-decoded —
+  snapshot/restore handles them as opaque values, which is all they need.
 - **`/meters` blob *structure* confirmed on real hardware (2026-07-07, firmware
   4.13); slot *meaning* still unmapped.** Subscribing with the documented form
   (send the parent `/meters` address with the blob path as a string argument,

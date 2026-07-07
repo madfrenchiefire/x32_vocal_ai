@@ -6,11 +6,22 @@ audio callback). One dedicated MIDI channel (default 16, configurable).
 Buttons = CC toggle (127 = pressed, 0 = released, only 127 triggers an
 action); encoders = absolute CC 0-127, scaled to 0.0-1.0 for sensitivity.
 
-Provisioning a slot's hardware controls on the console (assign-set writes)
-is NOT functional yet -- app.osc.assign_set needs a confirmed MIDI-
-assignment value format first (see that module's docstring). The slot
-lifecycle and CC dispatch below are complete and independently testable;
-_provision_slot is the one clearly marked no-op pending that.
+Provisioning a slot's hardware controls on the console (assign-set writes,
+_provision_slot) is live: the userctrl address shape and the MIDI-CC value
+string format are both confirmed against real hardware (see
+app.osc.assign_set's module docstring). Physical-control layout per set,
+mapping CLAUDE.md's slot-model table onto the console's own numbering
+(4 encoders, then buttons numbered 5-12):
+
+    encoder <i>   (enc/1-4)  = sensitivity, slot i of the set
+    button  <4+i> (btn/5-8)  = AI on/off,   slot i of the set
+    button  <8+i> (btn/9-12) = insert/bypass, slot i of the set
+
+Provisioning is best-effort: a failed console write (mismatch/timeout) is
+logged and the channel stays app-controlled -- it never blocks selection.
+Deselecting a channel restores that slot's three controls to their
+snapshot values (AppState.assign_set_snapshot, captured on connect), per
+"snapshot before touching anything".
 """
 from __future__ import annotations
 
@@ -21,7 +32,17 @@ import mido
 
 from app.config import AppConfig
 from app.diagnostics.logger import DiagnosticsLogger
-from app.midi.slots import SlotAssignment, SlotManager, SlotsFullError, ai_toggle_cc, insert_bypass_cc, sensitivity_cc
+from app.midi.slots import (
+    SlotAssignment,
+    SlotManager,
+    SlotsFullError,
+    ai_toggle_cc,
+    index_in_set,
+    insert_bypass_cc,
+    sensitivity_cc,
+    set_for_slot,
+)
+from app.osc.assign_set import button_addr, encoder_addr, midi_cc_value, write_assignment
 from app.osc.connection import OscConnection
 from app.state import AppState
 
@@ -104,18 +125,71 @@ class MidiService:
 
     def deselect_channel(self, channel: int, correlation_id: str | None = None) -> None:
         correlation_id = correlation_id or self.diagnostics.new_correlation_id()
+        slot = self.slots.slot_for_channel(channel)
+        if slot is not None and self.osc is not None:
+            self._restore_slot_controls(slot, correlation_id)
         self.slots.release(channel)
         self.state.channels[channel].midi_slot = None
         self.diagnostics.log_state_change(
             "midi_slot_released", after={"channel": channel}, correlation_id=correlation_id
         )
 
+    def _slot_control_addresses(self, slot: int) -> dict[str, str]:
+        """The three console controls backing one slot: its sensitivity
+        encoder, AI on/off button, and insert/bypass button -- see the
+        module docstring for how the slot-model table maps onto the
+        console's own enc/1-4 + btn/5-12 numbering."""
+        set_name, i = set_for_slot(slot), index_in_set(slot)
+        return {
+            "sensitivity": encoder_addr(set_name, i),
+            "ai_toggle": button_addr(set_name, 4 + i),
+            "insert_bypass": button_addr(set_name, 8 + i),
+        }
+
     def _provision_slot(self, assignment: SlotAssignment, correlation_id: str) -> None:
-        """TODO-VERIFY: wire this slot's encoder + 2 buttons to `assignment.channel`
-        via app.osc.assign_set.write_assignment() once the MIDI-assignment
-        value format is confirmed (see that module's docstring). Left as a
-        deliberate no-op call site until then."""
-        return
+        """Write this slot's three console-side MIDI assignments. Buttons
+        are provisioned as "Midi Push" (uppercase 'MC'), not "Midi Toggle":
+        _dispatch_cc acts on every value-127 message, and a Push sends 127
+        on every press, whereas a console-side Toggle alternates 127/0 and
+        would make the app's own toggle act only every other press.
+
+        Best-effort by design: any failure (readback mismatch, timeout) is
+        logged and provisioning stops, but channel selection stands -- the
+        channel is simply app-controlled until re-provisioned."""
+        addrs = self._slot_control_addresses(assignment.slot)
+        writes = [
+            (addrs["sensitivity"], midi_cc_value(self.config.midi_channel, sensitivity_cc(assignment.slot))),
+            (addrs["ai_toggle"], midi_cc_value(self.config.midi_channel, ai_toggle_cc(assignment.slot))),
+            (addrs["insert_bypass"], midi_cc_value(self.config.midi_channel, insert_bypass_cc(assignment.slot))),
+        ]
+        try:
+            for address, value in writes:
+                write_assignment(self.osc, self.diagnostics, address, value, correlation_id=correlation_id)
+        except Exception as exc:
+            self.diagnostics.log_error(
+                exc, context=f"provisioning MIDI slot {assignment.slot} console controls failed",
+                correlation_id=correlation_id,
+            )
+
+    def _restore_slot_controls(self, slot: int, correlation_id: str) -> None:
+        """Write a deselected slot's three controls back to their values
+        from the connect-time assign-set snapshot (best-effort; a control
+        with no snapshot value -- e.g. its address never answered -- is
+        left as-is rather than guessed at)."""
+        snapshot = self.state.assign_set_snapshot
+        if not snapshot:
+            return
+        try:
+            for address in self._slot_control_addresses(slot).values():
+                original = snapshot.get(address)
+                if original is None:
+                    continue
+                write_assignment(self.osc, self.diagnostics, address, *original, correlation_id=correlation_id)
+        except Exception as exc:
+            self.diagnostics.log_error(
+                exc, context=f"restoring MIDI slot {slot} console controls failed",
+                correlation_id=correlation_id,
+            )
 
     def _on_midi_message(self, message: mido.Message) -> None:
         """mido's backend callback thread -- keep this fast and non-blocking."""

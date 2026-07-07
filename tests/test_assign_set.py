@@ -7,6 +7,7 @@ from app.osc.assign_set import (
     all_assign_set_addresses,
     button_addr,
     encoder_addr,
+    midi_cc_value,
     restore_assignments,
     snapshot_assign_sets,
     write_assignment,
@@ -50,6 +51,27 @@ def test_all_assign_set_addresses_covers_both_sets():
     assert "/config/userctrl/A/enc/1" in addrs
     assert "/config/userctrl/B/btn/12" in addrs
     assert len(addrs) == 2 * (4 + 8)
+
+
+def test_midi_cc_value_matches_decoded_console_format():
+    # Directly mirrors the confirmed real-console examples: Encoder 2 set
+    # to Ctrl Chg / Channel 02 / CC 1 read back 'MC02001', and the "Midi
+    # Toggle" button variant used a lowercase 'c'.
+    assert midi_cc_value(2, 1) == "MC02001"
+    assert midi_cc_value(3, 2) == "MC03002"
+    assert midi_cc_value(16, 11) == "MC16011"
+    assert midi_cc_value(1, 0, toggle=True) == "Mc01000"
+
+
+def test_midi_cc_value_rejects_out_of_range():
+    with pytest.raises(ValueError):
+        midi_cc_value(0, 1)
+    with pytest.raises(ValueError):
+        midi_cc_value(17, 1)
+    with pytest.raises(ValueError):
+        midi_cc_value(16, -1)
+    with pytest.raises(ValueError):
+        midi_cc_value(16, 128)
 
 
 def test_snapshot_assign_sets_reads_all_addresses(fake_x32, diagnostics, app_state):
