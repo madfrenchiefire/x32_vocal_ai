@@ -95,6 +95,46 @@ def test_query_many_unanswered_address_does_not_starve_later_addresses(fake_x32,
         osc.close()
 
 
+def test_listen_collects_multiple_replies_over_the_window(fake_x32, diagnostics, app_state):
+    fake_x32.extra_responses["/probe"] = (1,)
+    osc = make_connection(fake_x32, diagnostics, app_state)
+    osc.connect()
+    try:
+        results: list = []
+        t = threading.Thread(target=lambda: results.append(osc.listen("/probe", 0.5)))
+        t.start()
+        time.sleep(0.05)
+        osc.send("/probe")  # a "get" -- fake console replies once
+        time.sleep(0.05)
+        osc.send("/probe")  # a second "get" -- listen() should catch this reply too
+        t.join()
+
+        assert results[0] == [(1,), (1,)]
+    finally:
+        osc.close()
+
+
+def test_listen_returns_empty_list_when_nothing_arrives(fake_x32, diagnostics, app_state):
+    osc = make_connection(fake_x32, diagnostics, app_state)
+    osc.connect()
+    try:
+        messages = osc.listen("/nobody-answers-this", 0.2)
+        assert messages == []
+    finally:
+        osc.close()
+
+
+def test_listen_unregisters_its_waiter_after_returning(fake_x32, diagnostics, app_state):
+    osc = make_connection(fake_x32, diagnostics, app_state)
+    osc.connect()
+    try:
+        osc.listen("/probe", 0.1)
+        with osc._pending_lock:
+            assert osc._pending.get("/probe", []) == []
+    finally:
+        osc.close()
+
+
 def test_query_until_match_returns_immediately_when_already_correct(fake_x32, diagnostics, app_state):
     fake_x32.extra_responses["/foo"] = (5,)
     osc = make_connection(fake_x32, diagnostics, app_state)

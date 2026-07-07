@@ -321,6 +321,35 @@ class OscConnection:
 
         return results
 
+    def listen(self, address: str, duration_sec: float) -> list[tuple]:
+        """Collect every reply that arrives on address for duration_sec,
+        rather than stopping at the first one like query()/query_many() --
+        for addresses that push multiple messages over time instead of
+        answering once (e.g. the X32's /meters/* blob stream, whose exact
+        subscribe args and payload layout are still unconfirmed -- see
+        app.osc.protocol_discovery.capture_meters_sample, which uses this
+        to record whatever a candidate subscribe attempt actually produces)."""
+        q: queue.Queue = queue.Queue()  # maxsize=0 -- unbounded, never drops a message
+        with self._pending_lock:
+            self._pending.setdefault(address, []).append(q)
+        try:
+            messages: list[tuple] = []
+            deadline = time.monotonic() + duration_sec
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    messages.append(q.get(timeout=remaining))
+                except queue.Empty:
+                    break
+            return messages
+        finally:
+            with self._pending_lock:
+                waiters = self._pending.get(address, [])
+                if q in waiters:
+                    waiters.remove(q)
+
     # -- background threads -------------------------------------------------
     def _recv_loop(self) -> None:
         assert self._sock is not None

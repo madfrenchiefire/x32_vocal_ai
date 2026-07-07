@@ -348,8 +348,30 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
    or unreachable one is skipped rather than fatal.
 
 ## Open items to verify (do not assume)
-- MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical.
-- `/meters` blob layout for the meters we need.
+- **`python -m app.tools.diagnose_console --console <ip>` is the one-stop tool for
+  confirming everything below against a real console.** It (1) captures every
+  passive value the console will answer right now in one pass (routing snapshot,
+  Set A/B assign-set snapshot, all 32 channels' scribble-strip configs --
+  `app.osc.protocol_discovery.capture_full_state`), then (2) walks through each
+  still-open item that needs a human to change something on the console while
+  the tool watches for the resulting raw value (`watch_until_changed`: reads a
+  baseline, polls until it differs or a timeout elapses) -- currently wired up
+  for the Main L/R echo-reference value and the MIDI assign-set format, plus a
+  `--watch ADDRESS [ADDRESS ...]` escape hatch for anything else not hardcoded
+  into the wizard (e.g. one of the inferred-but-unconfirmed routing bank values
+  below). It also attempts a best-effort `/meters` capture (`capture_meters_sample`
+  + `OscConnection.listen()`, which collects every reply on an address over a
+  window instead of stopping at the first one like `query()`/`query_many()`),
+  saving whatever raw bytes come back for offline decoding. Everything lands in
+  one timestamped JSON report under `<log_dir>/protocol_discovery/`, and the
+  tool's final summary says exactly which constant to update with whatever got
+  confirmed that run (e.g. `MAIN_LR_USERROUT_OUT_VALUE`). `--passive-only` skips
+  every interactive step (useful for a quick capture without standing at the
+  console); each guided watch step is individually Ctrl+C-skippable.
+- MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical
+  (or `app.tools.diagnose_console`'s guided watch step, above).
+- `/meters` blob layout for the meters we need (or `app.tools.diagnose_console`'s
+  default best-effort raw capture step, above, for offline decoding).
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
 - **Raw `userrout/out` value for "Main L/R" as an echo-cancellation reference
   source.** Every confirmed `userrout` value so far (`app/osc/addresses.py`
@@ -359,8 +381,10 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   yet. `app/audio/echo_cancellation.py`'s auto-routing constant is a clearly
   marked placeholder pending this. Confirm the same way as everything else in
   this project: route Main L/R to a User Out slot on the console, read back
-  `/config/userrout/out/NN`, note the raw value (or sweep candidates with
-  `python -m app.tools.test_write_routing`).
+  `/config/userrout/out/NN`, note the raw value (`python -m
+  app.tools.diagnose_console`'s guided watch step does exactly this and reports
+  the result, or sweep candidates manually with `python -m
+  app.tools.test_write_routing`).
 - **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
   from two sources: (1) a real console scene (`.scn`) file dump, and (2)
   Patrick-Gilles Maillot's own reverse-engineered parameter table and enum
