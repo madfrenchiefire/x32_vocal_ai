@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
@@ -73,6 +75,36 @@ def test_active_notches_reports_current_set():
     notch_id = bank.add_notch(1000.0, q=8.0, depth_db=-6.0)
     active = bank.active_notches()
     assert active == [{"id": notch_id, "frequency_hz": 1000.0, "q": 8.0, "depth_db": -6.0}]
+
+
+def test_find_notch_near_matches_within_tolerance():
+    bank = NotchFilterBank(sample_rate=SAMPLE_RATE, max_notches=12, depth_db=-12.0)
+    notch_id = bank.add_notch(1000.0)
+    assert bank.find_notch_near(1005.0, tolerance_hz=10.0) == notch_id
+    assert bank.find_notch_near(1050.0, tolerance_hz=10.0) is None
+
+
+def test_release_stale_notches_removes_only_unreconfirmed():
+    bank = NotchFilterBank(sample_rate=SAMPLE_RATE, max_notches=12, depth_db=-12.0)
+    stale_id = bank.add_notch(500.0)
+    fresh_id = bank.add_notch(1000.0)
+
+    now = 1000.0
+    bank.touch_notch(stale_id, now=now - 200.0)  # reconfirmed long ago
+    bank.touch_notch(fresh_id, now=now - 5.0)  # reconfirmed recently
+
+    released = bank.release_stale_notches(max_age_sec=120.0, now=now)
+    assert released == [stale_id]
+    remaining_ids = [n["id"] for n in bank.active_notches()]
+    assert remaining_ids == [fresh_id]
+
+
+def test_release_stale_notches_keeps_everything_within_max_age():
+    bank = NotchFilterBank(sample_rate=SAMPLE_RATE, max_notches=12, depth_db=-12.0)
+    notch_id = bank.add_notch(500.0)
+    released = bank.release_stale_notches(max_age_sec=120.0, now=time.monotonic())
+    assert released == []
+    assert [n["id"] for n in bank.active_notches()] == [notch_id]
 
 
 def test_process_preserves_state_across_calls():

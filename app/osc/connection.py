@@ -291,15 +291,25 @@ class OscConnection:
                 self.send(addr, correlation_id=correlation_id)
                 time.sleep(pace_sec)
 
+            # Poll every waiter each sweep rather than blocking on one
+            # address at a time in list order -- an address that never
+            # replies would otherwise eat the whole deadline via a single
+            # blocking get(timeout=remaining), starving every address
+            # after it in the list even though their replies already
+            # arrived (confirmed: an unanswered address anywhere but last
+            # caused every later address to be reported None).
             deadline = time.monotonic() + deadline_timeout
-            for addr in list(pending_addrs):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                try:
-                    results[addr] = waiters[addr].get(timeout=remaining)
-                except queue.Empty:
-                    continue
+            still_pending = list(pending_addrs)
+            while still_pending and time.monotonic() < deadline:
+                next_pending = []
+                for addr in still_pending:
+                    try:
+                        results[addr] = waiters[addr].get_nowait()
+                    except queue.Empty:
+                        next_pending.append(addr)
+                still_pending = next_pending
+                if still_pending:
+                    time.sleep(0.01)
 
             with self._pending_lock:
                 for addr, q in waiters.items():

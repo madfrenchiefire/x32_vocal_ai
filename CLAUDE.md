@@ -42,6 +42,26 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   devices actually have enough channels for what's been provisioned, raising a
   clear `AudioEngineError` instead of an opaque PortAudio failure (or worse, silently
   opening fewer channels than expected) if not.
+- **Card slot vs console channel number — confirmed as a real bug via code audit
+  (2026-07-07), fixed in `AudioEngine._channel_state_for_slot`.** `AppState.channels`
+  is keyed by console channel number (1-32); `AudioEngine.filter_banks`/
+  `echo_cancellers` and the audio stream's own channel indices are keyed by Card
+  slot number. These only coincide when a channel's `card_out_slot` happens to equal
+  its channel number. `_analyze_block`'s gating (AI enabled? which mode/sensitivity?
+  echo cancellation on?) originally indexed `state.channels[card_slot]` directly —
+  silently reading the wrong channel's settings (or none at all) whenever routing
+  assigned a channel to a non-matching Card slot. Fixed by reverse-looking-up the
+  `ChannelState` whose `card_out_slot` matches the slot actually being processed;
+  a slot with no channel currently assigned to it now correctly gates closed
+  instead of falling through to whatever channel number happened to match.
+- Per-channel **live level meters** (implemented, `AudioEngine._rms_dbfs`/
+  `_meters_loop`): RMS dBFS computed directly from each channel's raw captured
+  audio in the callback (cheap dict write, no allocation), broadcast at ~150ms
+  intervals via an injectable `on_levels_update` hook (`app/web/sockets.py` emits
+  it as the `channel_meters` WebSocket event; `GET /api/channels/meters` is the
+  REST fallback for the moment before the first broadcast lands) — keyed by Card
+  slot number, same as `filter_banks`. This measures the app's own captured audio,
+  not the OSC `/meters` blob described below, whose layout remains unconfirmed.
 - `sounddevice` (PortAudio) via the ASIO driver, 48 kHz, 64–128 sample buffer.
   Target total round trip ≤ ~10 ms; measure it (loopback click test).
 - Audio callback does per-channel biquad notch filtering plus, if echo cancellation
@@ -74,6 +94,12 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   (`AppConfig.echo_reference_card_channels: tuple[int, int] | None`, auto-picked from
   whichever Card channels aren't already claimed by a provisioned mic channel), then
   reads those two Card channels back into the app as the reference signal.
+  **User-selectable, not just auto-picked**: `app.audio.echo_cancellation.
+  auto_route_reference_signal(..., card_channels=(left, right))` lets the web UI's
+  Console Setup "Reference L/R" fields (`POST /api/echo_cancellation/reference`)
+  pick the two Card ports explicitly — validated against conflicts with any
+  provisioned mic channel's `card_out_slot` — and overrides whatever was
+  auto-picked or reused from a previous session.
   **Open item: the raw `userrout/out` value for "Main L/R" as a source is not yet
   confirmed** — everything confirmed so far (`app/osc/addresses.py`
   `USERROUT_SOURCE_RANGES`) only covers Local Analog/AES50-A/AES50-B/Card as physical
@@ -115,6 +141,20 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   connection is now confirmed with one active `/xinfo` query-reply pair before
   ever being declared lost; only a failed *active* probe now triggers the
   `connection_lost` → reconnect-with-backoff path.
+- **`OscConnection.query_many` starvation bug — confirmed and fixed (2026-07-07).**
+  The batch-read helper used to check each address in list order, blocking on
+  `queue.get(timeout=remaining)` for one address at a time. An address that never
+  replies ate the *entire* remaining deadline on that one blocking call — so every
+  address after it in the list got reported `None`, even ones whose reply had
+  already arrived and was sitting in its own queue, because the loop gave up on the
+  rest before ever checking them. Only reproduces when the unanswered address isn't
+  last in the list, which is why it went unnoticed (the original test for this
+  happened to put the missing address last). Fixed by polling every outstanding
+  address's queue non-blockingly each sweep instead of blocking on one at a time.
+  This affected any caller reading many addresses at once where a real console
+  might not answer every one on the first try — e.g.
+  `app.osc.scribble_strip.read_all_channel_configs` (32 addresses for the routing
+  grid's name/color columns) and `app.osc.routing_snapshot`.
 - **Confirmed address shapes** (from Patrick-Gilles Maillot's own reverse-engineered
   parameter table and enum tables, github.com/pmaillot/X32-Behringer,
   `X32CfgMain.h` / `X32.c` — see "Open items to verify" below): each channel has
@@ -161,6 +201,11 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   already inserted via this app; not true if the block's bank was never set or
   was set wrong). Implemented as a toggle (bypass ↔ re-insert).
 - **Full restore** = replay the snapshot (web UI + crash watchdog; no physical button).
+  The crash watchdog (`app.watchdog.Watchdog`) restores the routing snapshot and
+  the Set A/B assign-set snapshot (`app.osc.assign_set.snapshot_assign_sets`,
+  captured on connect into `AppState.assign_set_snapshot`) independently — either
+  can be present without the other, so a crash before a routing snapshot exists
+  still gets Set A/B restored, and vice versa.
 - **Console feedback**: write channel scribble-strip colors/names to show per-channel
   state (inserted vs bypassed, AI active/suppressing). Restore names/colors on disengage
   (they're in the snapshot).
@@ -228,27 +273,39 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   visible set persists in the browser's `localStorage` across reloads. A
   channel that's actually in play (inserted, or still holding a Card slot from
   earlier in the session) is always shown regardless of this filter, so it can
-  never silently disappear from view. Channel *names/colors* pulled live
-  from the console via scribble-strip reads are not wired into this grid yet
-  (`app/osc/scribble_strip.py` exists and is used for writes, just not surfaced
-  in `/api/channels` reads) — rows currently show channel number only.
+  never silently disappear from view. Channel *names/colors* pulled live from
+  the console via scribble-strip reads are now wired into this grid: each row
+  shows the channel's console name plus a color swatch decoded from
+  `app.osc.scribble_strip.read_all_channel_configs` (32 paced queries, one per
+  channel) via `app.state.AppState.apply_channel_configs`. This is deliberately
+  *not* done synchronously inside `/api/console/connect` (would add several
+  seconds to that response) — the web UI calls the new `POST
+  /api/channels/refresh_names` itself right after a successful connect
+  (best-effort; also available as a standalone "Refresh Names" button for
+  picking up console-side renames later in a session).
 - **Per channel** (implemented via `/api/channels/<n>/settings`): detection
   sensitivity, max simultaneous notches (default 12), notch depth (−6 to
   −18 dB), Q/width all persist to `ChannelState` and, if a live `NotchFilterBank`
   is wired into the running `AudioEngine`, take effect immediately. "Deploy
   speed" from the original spec has no concrete field yet — not implemented.
 - **Modes**: **Ring-out/setup** vs **Live** are a per-channel `ChannelState.mode`
-  field, selectable in the routing grid and persisted — but the *behavioral*
-  difference CLAUDE.md describes (ring-out aggressive/locks filters; live
-  conservative/floating filters in reserve, slow release of unused notches) is
-  not read anywhere in `app.audio.detection`/`app.audio.engine` yet. The field
-  exists; the detector doesn't branch on it. Flagged rather than silently
-  assumed built.
+  field, selectable in the routing grid and persisted, and now a real behavioral
+  difference in `app.audio.engine._analyze_block`: ring-out mode never releases
+  notches (`release_stale_notches` is only called in live mode) and detects at a
+  lower, more aggressive threshold (`RING_OUT_THRESHOLD_ADJUSTMENT_DB`); live mode
+  slow-releases notches unreconfirmed for `NOTCH_RELEASE_AFTER_SEC`. Per-channel
+  **sensitivity** (0-1) is likewise no longer cosmetic — it's mapped to a detection
+  threshold via `app.audio.detection.sensitivity_to_threshold_db` and passed into
+  `FeedbackDetector.analyze` per channel.
 - **Global** (implemented): bypass all / re-insert all
   (`/api/routing/bypass_all`), echo cancellation on/off + reference-channel
   status (`/api/echo_cancellation/toggle`, auto-routes via
   `app.audio.echo_cancellation.auto_route_reference_signal` the first time it's
-  enabled), event log (every diagnostics event, including `notch_placed`'s
+  enabled), an explicit reference-port picker (`POST
+  /api/echo_cancellation/reference`, Console Setup's "Reference L/R" fields —
+  see "1b. Echo cancellation" above), live per-channel level meters (Card-slot-
+  keyed dBFS bars pushed over the `channel_meters` WebSocket event, see "1. Audio
+  engine" above), event log (every diagnostics event, including `notch_placed`'s
   channel/frequency/time, pushed live over WebSocket as it's logged via
   `DiagnosticsLogger.add_listener` — not polled). **Not implemented**: the ML
   confidence threshold slider (inert regardless, since Phase 5's ML classifier

@@ -18,6 +18,8 @@ place -- iirnotch has no gain parameter to give one.
 """
 from __future__ import annotations
 
+import time
+
 import numpy as np
 from scipy import signal
 
@@ -75,6 +77,7 @@ class NotchFilterBank:
             "frequency_hz": frequency_hz,
             "q": q if q is not None else self.default_q,
             "depth_db": depth_db if depth_db is not None else self.default_depth_db,
+            "last_reconfirmed_monotonic": time.monotonic(),
         }
         self._rebuild()
         return notch_id
@@ -84,7 +87,41 @@ class NotchFilterBank:
         self._rebuild()
 
     def active_notches(self) -> list[dict]:
-        return [{"id": notch_id, **params} for notch_id, params in self._notches.items()]
+        return [
+            {"id": notch_id, "frequency_hz": p["frequency_hz"], "q": p["q"], "depth_db": p["depth_db"]}
+            for notch_id, p in self._notches.items()
+        ]
+
+    def find_notch_near(self, frequency_hz: float, tolerance_hz: float) -> int | None:
+        """Id of an active notch within tolerance_hz of frequency_hz, or
+        None. Used by the analysis thread to recognize "this candidate is
+        the same tone an existing notch is already suppressing" rather
+        than placing a redundant second notch right next to it."""
+        for notch_id, params in self._notches.items():
+            if abs(params["frequency_hz"] - frequency_hz) <= tolerance_hz:
+                return notch_id
+        return None
+
+    def touch_notch(self, notch_id: int, now: float | None = None) -> None:
+        """Marks a notch as reconfirmed -- its tone is still showing up as
+        active feedback, so release_stale_notches() must not age it out."""
+        if notch_id in self._notches:
+            self._notches[notch_id]["last_reconfirmed_monotonic"] = now if now is not None else time.monotonic()
+
+    def release_stale_notches(self, max_age_sec: float, now: float | None = None) -> list[int]:
+        """Removes (and returns the ids of) notches not reconfirmed in over
+        max_age_sec -- CLAUDE.md's "live mode: slow release of unused
+        notches." Callers gate this by mode (ring-out mode never calls
+        this, "locking" its filters for the session)."""
+        now = now if now is not None else time.monotonic()
+        stale = [
+            notch_id
+            for notch_id, params in self._notches.items()
+            if now - params["last_reconfirmed_monotonic"] > max_age_sec
+        ]
+        for notch_id in stale:
+            self.remove_notch(notch_id)
+        return stale
 
     def _rebuild(self) -> None:
         """Rebuilds the SOS cascade from the current notch set. Only called

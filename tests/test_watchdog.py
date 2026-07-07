@@ -95,6 +95,52 @@ def test_trigger_full_restore_skips_when_no_snapshot(diagnostics, app_state):
     assert any(e["payload"]["event"] == "restore_skipped_no_snapshot" for e in events if e["category"] == "watchdog")
 
 
+def test_trigger_full_restore_also_restores_assign_sets(diagnostics, app_state):
+    routing_snapshot = _make_snapshot()
+    assign_set_snapshot = {"/config/ctrl/A/enc/1": (1,)}
+    restore_fn = MagicMock(return_value=[])
+    restore_assignments_fn = MagicMock(return_value=[])
+    watchdog = Watchdog(
+        osc=MagicMock(spec=OscConnection),
+        diagnostics=diagnostics,
+        state=app_state,
+        snapshot_provider=lambda: routing_snapshot,
+        restore_fn=restore_fn,
+        assign_set_snapshot_provider=lambda: assign_set_snapshot,
+        restore_assignments_fn=restore_assignments_fn,
+    )
+
+    watchdog.trigger_full_restore(reason="test")
+
+    restore_fn.assert_called_once()
+    restore_assignments_fn.assert_called_once()
+    assert restore_assignments_fn.call_args.args[2] is assign_set_snapshot
+
+
+def test_trigger_full_restore_restores_assign_sets_even_without_routing_snapshot(diagnostics, app_state):
+    assign_set_snapshot = {"/config/ctrl/A/enc/1": (1,)}
+    restore_fn = MagicMock(return_value=[])
+    restore_assignments_fn = MagicMock(return_value=[])
+    watchdog = Watchdog(
+        osc=MagicMock(spec=OscConnection),
+        diagnostics=diagnostics,
+        state=app_state,
+        snapshot_provider=lambda: None,
+        restore_fn=restore_fn,
+        assign_set_snapshot_provider=lambda: assign_set_snapshot,
+        restore_assignments_fn=restore_assignments_fn,
+    )
+
+    mismatches = watchdog.trigger_full_restore(reason="test")
+
+    restore_fn.assert_not_called()
+    restore_assignments_fn.assert_called_once()
+    assert mismatches == []
+
+    events = diagnostics.get_recent(5)
+    assert not any(e["payload"]["event"] == "restore_skipped_no_snapshot" for e in events if e["category"] == "watchdog")
+
+
 def test_trigger_full_restore_logs_watchdog_events(diagnostics, app_state):
     snapshot = _make_snapshot()
     watchdog = _make_watchdog(diagnostics, app_state, snapshot=snapshot)

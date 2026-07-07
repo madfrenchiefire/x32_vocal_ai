@@ -30,6 +30,7 @@ from app.audio.filters import NotchFilterBank
 from app.config import AppConfig, load_config
 from app.diagnostics.logger import DiagnosticsLogger
 from app.midi.service import MidiService
+from app.osc.assign_set import snapshot_assign_sets
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.routing_apply import RoutingApplyError, bypass_channel
 from app.state import AppState
@@ -66,11 +67,19 @@ def _start_osc(config: AppConfig, diagnostics: DiagnosticsLogger, state: AppStat
     try:
         osc.connect()
         print(f"Connected to console: {osc.xinfo}")
-        return osc
     except (OscConnectionError, FirmwareTooOldError) as exc:
         print(f"WARNING: could not connect to console at startup: {exc}", file=sys.stderr)
         diagnostics.log_error(exc, context="startup console connect failed")
         return None
+
+    try:
+        state.set_assign_set_snapshot(snapshot_assign_sets(osc, diagnostics))
+    except Exception as exc:
+        # Non-fatal -- routing snapshot/apply still works without this;
+        # the crash watchdog just won't have Set A/B to restore.
+        diagnostics.log_error(exc, context="startup assign-set snapshot failed")
+
+    return osc
 
 
 def _start_midi(
@@ -177,7 +186,13 @@ def main(argv: list[str] | None = None) -> int:
     # reassigns watchdog.osc once the user searches for or manually enters
     # a console in the web UI, and Watchdog itself is a no-op restore
     # (logged, not crashed) if triggered while osc is still None.
-    watchdog = Watchdog(osc=osc, diagnostics=diagnostics, state=state, snapshot_provider=lambda: state.current_snapshot)
+    watchdog = Watchdog(
+        osc=osc,
+        diagnostics=diagnostics,
+        state=state,
+        snapshot_provider=lambda: state.current_snapshot,
+        assign_set_snapshot_provider=lambda: state.assign_set_snapshot,
+    )
     watchdog.start()
 
     try:

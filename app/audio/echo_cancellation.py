@@ -142,16 +142,31 @@ def auto_route_reference_signal(
     state: AppState,
     correlation_id: str | None = None,
     pace_sec: float = 0.02,
+    card_channels: tuple[int, int] | None = None,
 ) -> tuple[int, int]:
-    """Routes the console's Main L/R bus into two otherwise-unused Card
-    channels (picked from whichever aren't already claimed by a
-    provisioned mic channel's card_out_slot) via userrout/out, so the
-    audio engine can read those two Card channels back as the echo
-    reference. Idempotent: reuses config.echo_reference_card_channels if
-    this session already assigned one."""
+    """Routes the console's Main L/R bus into two Card channels via
+    userrout/out, so the audio engine can read those two Card channels
+    back as the echo reference.
+
+    card_channels lets the caller pick explicitly which two Card slots
+    carry the reference (the web UI's Console Setup Left/Right port
+    fields) -- raises EchoCancellationError if either is already claimed
+    by a provisioned mic channel's card_out_slot. None (the default) keeps
+    the original auto behavior: reuse config.echo_reference_card_channels
+    if this session already assigned one, otherwise auto-pick whichever
+    Card slots are free."""
     correlation_id = correlation_id or diagnostics.new_correlation_id()
 
-    if config.echo_reference_card_channels is not None:
+    if card_channels is not None:
+        slot_a, slot_b = card_channels
+        used = {c.card_out_slot for c in state.channels.values() if c.card_out_slot is not None}
+        conflicts = sorted({slot_a, slot_b} & used)
+        if conflicts:
+            raise EchoCancellationError(
+                f"Card slot(s) {conflicts} already claimed by a provisioned mic channel"
+            )
+        config.echo_reference_card_channels = (slot_a, slot_b)
+    elif config.echo_reference_card_channels is not None:
         slot_a, slot_b = config.echo_reference_card_channels
     else:
         slot_a, slot_b = _free_card_slots(state, 2)

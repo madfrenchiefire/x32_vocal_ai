@@ -11,8 +11,21 @@ app.audio.filters.NotchFilterBank -- CLAUDE.md explicitly calls heuristics
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Hashable
 
 import numpy as np
+
+# Maps ChannelState.sensitivity (0-1, higher = more sensitive) to a
+# peak-to-average threshold in dB (lower = easier to trigger). 0.5 (the
+# field's default) maps to 12dB, this module's own original fixed default,
+# so existing behavior is unchanged for anyone who never touches the slider.
+MIN_THRESHOLD_DB = 4.0
+MAX_THRESHOLD_DB = 20.0
+
+
+def sensitivity_to_threshold_db(sensitivity: float) -> float:
+    sensitivity = max(0.0, min(1.0, sensitivity))
+    return MAX_THRESHOLD_DB - sensitivity * (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB)
 
 
 @dataclass
@@ -39,11 +52,27 @@ class FeedbackDetector:
         self.sustained_growth_frames = sustained_growth_frames
         self.history_len = history_len
         self._window = np.hanning(fft_size)
-        self._history: dict[int, list] = {}
+        # Keyed by (channel_key, bin_index), not bin_index alone -- a single
+        # shared FeedbackDetector serving every channel (AudioEngine reuses
+        # one instance across all 32 Card slots) would otherwise leak one
+        # channel's sustained-growth history into another's, since the same
+        # bin index means completely different signals on different
+        # channels. channel_key defaults to None for standalone/single-
+        # channel callers (e.g. direct unit tests), which behaves exactly
+        # as before this fix.
+        self._history: dict[tuple[Hashable, int], list] = {}
 
-    def analyze(self, block: np.ndarray) -> list[FeedbackCandidate]:
+    def analyze(
+        self,
+        block: np.ndarray,
+        channel_key: Hashable = None,
+        threshold_db: float | None = None,
+    ) -> list[FeedbackCandidate]:
         """Returns confirmed candidates for this frame. Analysis-thread
-        only -- never called from the audio callback."""
+        only -- never called from the audio callback. threshold_db
+        overrides self.peak_to_average_threshold_db for this call only
+        (AudioEngine derives it from the channel's sensitivity/mode)."""
+        threshold = threshold_db if threshold_db is not None else self.peak_to_average_threshold_db
         block = self._fit_to_fft_size(block)
         spectrum = np.abs(np.fft.rfft(block * self._window))
         freqs = np.fft.rfftfreq(self.fft_size, d=1.0 / self.sample_rate)
@@ -53,21 +82,22 @@ class FeedbackDetector:
         for idx in self._find_local_peaks(spectrum):
             magnitude = spectrum[idx]
             peak_to_average_db = 20 * np.log10(magnitude / avg_magnitude)
-            if peak_to_average_db >= self.peak_to_average_threshold_db:
+            if peak_to_average_db >= threshold:
                 strong_peaks.append(idx)
 
         overtone_bins = self._find_overtone_bins(freqs, strong_peaks)
 
         candidates: list[FeedbackCandidate] = []
-        seen_bins: set[int] = set()
+        seen_keys: set[tuple[Hashable, int]] = set()
 
         for idx in strong_peaks:
             magnitude = spectrum[idx]
             peak_to_average_db = 20 * np.log10(magnitude / avg_magnitude)
 
-            seen_bins.add(idx)
-            self._update_history(idx, float(magnitude))
-            sustained = self._is_sustained_growth(idx)
+            key = (channel_key, idx)
+            seen_keys.add(key)
+            self._update_history(key, float(magnitude))
+            sustained = self._is_sustained_growth(key)
             harmonic = idx in overtone_bins or self._has_harmonic_structure(spectrum, freqs, idx, avg_magnitude)
 
             if sustained and not harmonic:
@@ -77,11 +107,11 @@ class FeedbackDetector:
                         peak_to_average_db=float(peak_to_average_db),
                         harmonic_structure_present=harmonic,
                         sustained_growth=sustained,
-                        magnitude_history=list(self._history[idx]),
+                        magnitude_history=list(self._history[key]),
                     )
                 )
 
-        self._decay_unseen_history(seen_bins)
+        self._decay_unseen_history(channel_key, seen_keys)
         return candidates
 
     def _fit_to_fft_size(self, block: np.ndarray) -> np.ndarray:
@@ -96,28 +126,31 @@ class FeedbackDetector:
         # noise floor (unlike broadband musical content).
         return [i for i in range(1, len(spectrum) - 1) if spectrum[i] > spectrum[i - 1] and spectrum[i] > spectrum[i + 1]]
 
-    def _update_history(self, bin_index: int, magnitude: float) -> None:
-        history = self._history.setdefault(bin_index, [])
+    def _update_history(self, key: tuple, magnitude: float) -> None:
+        history = self._history.setdefault(key, [])
         history.append(magnitude)
         if len(history) > self.history_len:
             history.pop(0)
 
-    def _decay_unseen_history(self, seen_bins: set[int]) -> None:
-        for idx in list(self._history):
-            if idx in seen_bins:
+    def _decay_unseen_history(self, channel_key: Hashable, seen_keys: set[tuple]) -> None:
+        # Only decays this channel's own keys -- otherwise a call for one
+        # channel would age out every other channel's history too, since
+        # they all share this one dict.
+        for key in [k for k in self._history if k[0] == channel_key]:
+            if key in seen_keys:
                 continue
-            history = self._history[idx]
+            history = self._history[key]
             history.append(0.0)
             if len(history) > self.history_len:
                 history.pop(0)
             if not any(history):
-                del self._history[idx]
+                del self._history[key]
 
-    def _is_sustained_growth(self, bin_index: int) -> bool:
+    def _is_sustained_growth(self, key: tuple) -> bool:
         """Strict increase, not merely non-decreasing -- a held constant
         level (CLAUDE.md's "sustained notes" hard negative case) must NOT
         qualify, only an escalating feedback loop should."""
-        history = self._history.get(bin_index, [])
+        history = self._history.get(key, [])
         if len(history) < self.sustained_growth_frames:
             return False
         recent = history[-self.sustained_growth_frames:]

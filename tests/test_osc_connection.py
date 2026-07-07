@@ -74,6 +74,27 @@ def test_query_many_returns_none_for_unanswered_addresses(fake_x32, diagnostics,
         osc.close()
 
 
+def test_query_many_unanswered_address_does_not_starve_later_addresses(fake_x32, diagnostics, app_state):
+    # Regression test: an address with no reply used to eat the whole
+    # deadline via a blocking get(timeout=remaining), which meant every
+    # address *after* it in the list got reported None even though its
+    # reply had already arrived -- only reproduces with the missing
+    # address positioned before others, not last (see
+    # test_query_many_returns_none_for_unanswered_addresses above).
+    fake_x32.extra_responses["/a"] = (1,)
+    fake_x32.extra_responses["/c"] = (3,)
+
+    osc = make_connection(fake_x32, diagnostics, app_state)
+    osc.connect()
+    try:
+        results = osc.query_many(["/a", "/missing", "/c"], timeout=0.3, retries=0)
+        assert results["/a"] == (1,)
+        assert results["/missing"] is None
+        assert results["/c"] == (3,)
+    finally:
+        osc.close()
+
+
 def test_query_until_match_returns_immediately_when_already_correct(fake_x32, diagnostics, app_state):
     fake_x32.extra_responses["/foo"] = (5,)
     osc = make_connection(fake_x32, diagnostics, app_state)

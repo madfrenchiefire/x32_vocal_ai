@@ -163,3 +163,47 @@ def test_auto_route_reference_signal_raises_on_mismatch(monkeypatch, fake_x32, d
             auto_route_reference_signal(osc, diagnostics, config, app_state)
     finally:
         osc.close()
+
+
+def test_auto_route_reference_signal_uses_explicit_card_channels(fake_x32, diagnostics, app_state):
+    for addr in addresses.ALL_USERROUT_OUT:
+        fake_x32.extra_responses[addr] = (0,)
+
+    config = AppConfig()
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    try:
+        slots = auto_route_reference_signal(osc, diagnostics, config, app_state, card_channels=(10, 11))
+    finally:
+        osc.close()
+
+    assert slots == (10, 11)
+    assert config.echo_reference_card_channels == (10, 11)
+    assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (MAIN_LR_USERROUT_OUT_VALUE,)
+    assert fake_x32.extra_responses[addresses.userrout_out_addr(11)] == (MAIN_LR_USERROUT_OUT_VALUE,)
+
+
+def test_auto_route_reference_signal_explicit_channels_override_previous_choice(fake_x32, diagnostics, app_state):
+    for addr in addresses.ALL_USERROUT_OUT:
+        fake_x32.extra_responses[addr] = (0,)
+
+    config = AppConfig(echo_reference_card_channels=(1, 2))
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    try:
+        slots = auto_route_reference_signal(osc, diagnostics, config, app_state, card_channels=(5, 6))
+    finally:
+        osc.close()
+
+    assert slots == (5, 6)
+    assert config.echo_reference_card_channels == (5, 6)
+
+
+def test_auto_route_reference_signal_explicit_channels_reject_conflict(fake_x32, diagnostics, app_state):
+    app_state.channels[9].card_out_slot = 5  # channel 9 already owns Card slot 5
+
+    config = AppConfig()
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    try:
+        with pytest.raises(EchoCancellationError, match="5"):
+            auto_route_reference_signal(osc, diagnostics, config, app_state, card_channels=(5, 6))
+    finally:
+        osc.close()

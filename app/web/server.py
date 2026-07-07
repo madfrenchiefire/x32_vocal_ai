@@ -56,7 +56,7 @@ def create_app(
     app.register_blueprint(main_bp)
 
     socketio = SocketIO(app, async_mode="threading")
-    register_socket_handlers(socketio, state, diagnostics)
+    register_socket_handlers(socketio, state, diagnostics, audio_engine)
 
     return app, socketio
 

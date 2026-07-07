@@ -44,6 +44,11 @@ class ChannelState:
     active_notch_count: int = 0
     echo_cancellation_enabled: bool = False
 
+    # Scribble-strip name/color as last read from the console
+    # (app.osc.scribble_strip.read_all_channel_configs); None until read.
+    scribble_name: str | None = None
+    scribble_color: str | None = None
+
     # Per-channel overrides of AppConfig's global defaults; None = use the
     # global default.
     sensitivity: float = 0.5  # 0-1, heuristic detection threshold
@@ -62,6 +67,10 @@ class AppState:
         # Set by app.osc.routing_snapshot once a snapshot has been captured.
         self.current_snapshot: Any | None = None
         self.snapshot_history: list[str] = []
+        # Set by app.osc.assign_set.snapshot_assign_sets once Set A/B has
+        # been read -- the crash watchdog restores this alongside routing
+        # (app.watchdog.Watchdog's assign_set_snapshot_provider).
+        self.assign_set_snapshot: dict[str, tuple | None] | None = None
         self.channels: dict[int, ChannelState] = {i: ChannelState(index=i) for i in range(1, 33)}
 
     def update_connection(self, **changes: Any) -> None:
@@ -77,6 +86,23 @@ class AppState:
             if saved_path is not None:
                 self.snapshot_history.append(saved_path)
 
+    def set_assign_set_snapshot(self, snapshot: dict[str, tuple | None]) -> None:
+        with self._lock:
+            self.assign_set_snapshot = snapshot
+
+    def apply_channel_configs(self, configs: dict[int, tuple | None]) -> None:
+        """Update scribble_name/scribble_color from a
+        app.osc.scribble_strip.read_all_channel_configs() result. A channel
+        whose config is None (query timed out) is left untouched rather
+        than being blanked out."""
+        with self._lock:
+            for channel, config in configs.items():
+                if config is None or channel not in self.channels:
+                    continue
+                name, _icon, color, _source_number = config
+                self.channels[channel].scribble_name = name
+                self.channels[channel].scribble_color = color
+
     def summary(self) -> dict:
         """Plain-dict snapshot of current state, safe to serialize.
 
@@ -88,5 +114,6 @@ class AppState:
                 "connection": vars(self.connection).copy(),
                 "snapshot_history": list(self.snapshot_history),
                 "has_current_snapshot": self.current_snapshot is not None,
+                "has_assign_set_snapshot": self.assign_set_snapshot is not None,
                 "channels": {i: vars(c).copy() for i, c in self.channels.items()},
             }

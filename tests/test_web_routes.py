@@ -256,6 +256,32 @@ def test_toggle_ai_out_of_range_channel_404s(tmp_path, app_state, diagnostics):
     assert response.status_code == 404
 
 
+def test_toggle_channel_echo_cancellation_updates_state(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/channels/3/echo_toggle", data=json.dumps({"enabled": True}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert app_state.channels[3].echo_cancellation_enabled is True
+
+    response = client.post(
+        "/api/channels/3/echo_toggle", data=json.dumps({"enabled": False}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert app_state.channels[3].echo_cancellation_enabled is False
+
+
+def test_toggle_channel_echo_cancellation_out_of_range_404s(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post(
+        "/api/channels/99/echo_toggle", data=json.dumps({"enabled": True}), content_type="application/json"
+    )
+    assert response.status_code == 404
+
+
 def test_update_channel_settings_applies_overrides_and_live_bank(tmp_path, app_state, diagnostics):
     engine = AudioEngine(
         config=AppConfig(),
@@ -263,6 +289,7 @@ def test_update_channel_settings_applies_overrides_and_live_bank(tmp_path, app_s
         filter_banks={5: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)},
         detector=MagicMock(),
     )
+    app_state.channels[5].card_out_slot = 5
     app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
     client = app.test_client()
 
@@ -278,6 +305,51 @@ def test_update_channel_settings_applies_overrides_and_live_bank(tmp_path, app_s
     assert bank.max_notches == 4
     assert bank.default_depth_db == -6.0
     assert bank.default_q == 5.0
+
+
+def test_update_channel_settings_uses_card_slot_not_channel_number(tmp_path, app_state, diagnostics):
+    # Channel 9 assigned to Card slot 3 (apply_routing can reuse any free
+    # slot, not necessarily one matching the channel number) -- settings
+    # must land on slot 3's bank, and slot 9's bank (a different channel's)
+    # must be untouched.
+    engine = AudioEngine(
+        config=AppConfig(),
+        diagnostics=diagnostics,
+        filter_banks={
+            3: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0),
+            9: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0),
+        },
+        detector=MagicMock(),
+    )
+    app_state.channels[9].card_out_slot = 3
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/channels/9/settings", data=json.dumps({"max_notches": 4}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert engine.filter_banks[3].max_notches == 4
+    assert engine.filter_banks[9].max_notches == 12  # untouched
+
+
+def test_update_channel_settings_skips_live_bank_when_channel_not_yet_inserted(tmp_path, app_state, diagnostics):
+    engine = AudioEngine(
+        config=AppConfig(),
+        diagnostics=diagnostics,
+        filter_banks={7: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)},
+        detector=MagicMock(),
+    )
+    # channel 7 has never been inserted -- card_out_slot is still None.
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/channels/7/settings", data=json.dumps({"max_notches": 4}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert app_state.channels[7].max_notches_override == 4  # state still recorded
+    assert engine.filter_banks[7].max_notches == 12  # but no live bank touched
 
 
 def test_update_channel_settings_rejects_bad_mode(tmp_path, app_state, diagnostics):
@@ -433,6 +505,55 @@ def test_echo_cancellation_disable_does_not_require_osc(tmp_path, app_state, dia
     assert config.echo_cancellation_enabled is False
 
 
+def test_set_echo_reference_uses_explicit_card_channels(fake_x32, tmp_path, app_state, diagnostics):
+    for addr in addresses.ALL_USERROUT_OUT:
+        fake_x32.extra_responses[addr] = (0,)
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, config = _app(tmp_path, app_state, diagnostics, osc=osc)
+    client = app.test_client()
+    try:
+        response = client.post("/api/echo_cancellation/reference", json={"card_channels": [10, 11]})
+        assert response.status_code == 200
+        assert response.get_json()["reference_card_channels"] == [10, 11]
+        assert config.echo_reference_card_channels == (10, 11)
+        assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (MAIN_LR_USERROUT_OUT_VALUE,)
+    finally:
+        osc.close()
+
+
+def test_set_echo_reference_rejects_same_left_and_right(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post("/api/echo_cancellation/reference", json={"card_channels": [5, 5]})
+    assert response.status_code == 400
+
+
+def test_set_echo_reference_rejects_malformed_body(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post("/api/echo_cancellation/reference", json={"card_channels": [5]})
+    assert response.status_code == 400
+
+
+def test_set_echo_reference_without_osc_503s(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post("/api/echo_cancellation/reference", json={"card_channels": [5, 6]})
+    assert response.status_code == 503
+
+
+def test_set_echo_reference_conflict_returns_500(fake_x32, tmp_path, app_state, diagnostics):
+    app_state.channels[9].card_out_slot = 5
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc)
+    client = app.test_client()
+    try:
+        response = client.post("/api/echo_cancellation/reference", json={"card_channels": [5, 6]})
+        assert response.status_code == 500
+    finally:
+        osc.close()
+
+
 # -- diagnostics / websocket ----------------------------------------------------
 
 
@@ -456,3 +577,62 @@ def test_diagnostics_events_broadcast_over_websocket(tmp_path, app_state, diagno
         msg["name"] == "diagnostics_event" and msg["args"][0]["payload"]["description"] == "ws_test_event"
         for msg in received
     )
+
+
+def test_refresh_channel_names_without_osc_503s(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post("/api/channels/refresh_names")
+    assert response.status_code == 503
+
+
+def test_refresh_channel_names_updates_state_and_returns_channels(fake_x32, tmp_path, app_state, diagnostics):
+    from app.osc.scribble_strip import channel_config_addr
+
+    fake_x32.extra_responses[channel_config_addr(1)] = ("Ruby Vocal", 51, "YE", 1)
+    fake_x32.extra_responses[channel_config_addr(9)] = ("Left Vocal", 50, "RD", 9)
+
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app.extensions["osc_connection"] = osc
+    client = app.test_client()
+
+    try:
+        response = client.post("/api/channels/refresh_names")
+        assert response.status_code == 200
+        channels = {c["index"]: c for c in response.get_json()["channels"]}
+        assert channels[1]["scribble_name"] == "Ruby Vocal"
+        assert channels[1]["scribble_color"] == "YE"
+        assert channels[9]["scribble_name"] == "Left Vocal"
+        assert app_state.channels[1].scribble_name == "Ruby Vocal"
+    finally:
+        osc.close()
+
+
+def test_channel_meters_endpoint_without_audio_engine(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    data = client.get("/api/channels/meters").get_json()
+    assert data["levels"] == {}
+
+
+def test_channel_meters_endpoint_returns_engine_levels(tmp_path, app_state, diagnostics):
+    engine = MagicMock()
+    engine.get_levels.return_value = {1: -12.5, 2: -60.0}
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
+    client = app.test_client()
+    data = client.get("/api/channels/meters").get_json()
+    assert data["levels"] == {"1": -12.5, "2": -60.0}
+
+
+def test_channel_meters_broadcast_over_websocket(tmp_path, app_state, diagnostics):
+    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, detector=MagicMock())
+    app, socketio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
+    test_client = socketio.test_client(app)
+    test_client.get_received()  # drain the connect-time event
+
+    engine.on_levels_update({1: -9.0})
+
+    received = test_client.get_received()
+    # Socket.IO serializes dict keys to strings (JSON has no int keys).
+    assert any(msg["name"] == "channel_meters" and msg["args"][0] == {"1": -9.0} for msg in received)

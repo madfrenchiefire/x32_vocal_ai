@@ -18,10 +18,12 @@ from app.audio.echo_cancellation import EchoCancellationError, auto_route_refere
 from app.config import save_config
 from app.diagnostics.export import build_debug_bundle
 from app.midi import devices as midi_devices
+from app.osc.assign_set import snapshot_assign_sets
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.discovery import discover_consoles
 from app.osc.routing_apply import RoutingApplyError, apply_routing, bypass_channel, restore_snapshot
 from app.osc.routing_snapshot import read_routing_snapshot, save_snapshot
+from app.osc.scribble_strip import read_all_channel_configs
 
 bp = Blueprint("main", __name__)
 
@@ -202,6 +204,18 @@ def connect_console():
     if watchdog is not None:
         watchdog.osc = osc
 
+    try:
+        state.set_assign_set_snapshot(snapshot_assign_sets(osc, diagnostics, correlation_id=correlation_id))
+    except Exception as exc:
+        # Non-fatal -- routing still works without this; the crash
+        # watchdog just won't have Set A/B to restore.
+        diagnostics.log_error(exc, context="connect_console assign-set snapshot failed", correlation_id=correlation_id)
+
+    # Scribble-strip name/color reads (32 paced queries) are deliberately
+    # NOT done here -- they'd add several seconds to this endpoint's
+    # response. The web UI instead calls POST /api/channels/refresh_names
+    # itself right after a successful connect (see index.html), so this
+    # response comes back promptly and names populate a moment later.
     return jsonify(connected=True, xinfo=osc.xinfo)
 
 
@@ -241,6 +255,33 @@ def list_channels():
     return jsonify(channels=[_channel_dict(state, ch) for ch in range(1, 33)])
 
 
+@bp.route("/api/channels/refresh_names", methods=["POST"])
+def refresh_channel_names():
+    """Re-reads scribble-strip name/color for all 32 channels from the
+    console (e.g. after the user renames channels there post-connect) and
+    returns the updated grid. See app.osc.scribble_strip.read_all_channel_configs."""
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    osc, error = _osc_or_error()
+    if error:
+        return error
+
+    correlation_id = diagnostics.log_user_action("refresh_channel_names")
+    state.apply_channel_configs(read_all_channel_configs(osc, correlation_id=correlation_id))
+    return jsonify(channels=[_channel_dict(state, ch) for ch in range(1, 33)])
+
+
+@bp.route("/api/channels/meters")
+def channel_meters():
+    """Synchronous fallback for a page load before the WebSocket
+    "channel_meters" broadcast has fired yet -- keyed by Card slot number,
+    same as the live push (see app.web.sockets)."""
+    audio_engine = current_app.extensions.get("audio_engine")
+    if audio_engine is None:
+        return jsonify(levels={})
+    return jsonify(levels=audio_engine.get_levels())
+
+
 @bp.route("/api/channels/<int:channel>/ai_toggle", methods=["POST"])
 def toggle_ai(channel: int):
     state = current_app.extensions["app_state"]
@@ -255,6 +296,30 @@ def toggle_ai(channel: int):
     channel_state.ai_enabled = enabled
     diagnostics.log_state_change(
         "ai_toggled", before={"channel": channel, "enabled": before}, after={"channel": channel, "enabled": enabled}
+    )
+    return jsonify(channel=_channel_dict(state, channel))
+
+
+@bp.route("/api/channels/<int:channel>/echo_toggle", methods=["POST"])
+def toggle_channel_echo_cancellation(channel: int):
+    """Per-channel opt-in, independent of the global
+    AppConfig.echo_cancellation_enabled toggle (/api/echo_cancellation/toggle)
+    -- that one turns the feature on and routes the reference signal;
+    this one decides which channels' EchoCanceller actually runs."""
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    if channel not in state.channels:
+        return jsonify(error=f"channel {channel} out of range"), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    enabled = bool(body.get("enabled", False))
+    channel_state = state.channels[channel]
+    before = channel_state.echo_cancellation_enabled
+    channel_state.echo_cancellation_enabled = enabled
+    diagnostics.log_state_change(
+        "echo_cancellation_toggled",
+        before={"channel": channel, "enabled": before},
+        after={"channel": channel, "enabled": enabled},
     )
     return jsonify(channel=_channel_dict(state, channel))
 
@@ -283,8 +348,13 @@ def update_channel_settings(channel: int):
             return jsonify(error="mode must be 'live' or 'ring_out'"), 400
         channel_state.mode = body["mode"]
 
-    if audio_engine is not None:
-        bank = audio_engine.filter_banks.get(channel)
+    if audio_engine is not None and channel_state.card_out_slot is not None:
+        # filter_banks is keyed by Card slot number, NOT console channel
+        # number -- apply_routing can assign a channel to any free slot,
+        # so these differ whenever card_out_slot != channel. Using
+        # `channel` directly here would silently edit some other
+        # channel's filter bank whenever that happened.
+        bank = audio_engine.filter_banks.get(channel_state.card_out_slot)
         if bank is not None:
             if channel_state.max_notches_override is not None:
                 bank.max_notches = channel_state.max_notches_override
@@ -436,6 +506,40 @@ def toggle_echo_cancellation():
         return jsonify(enabled=True, reference_card_channels=list(slots))
 
     return jsonify(enabled=enabled, reference_card_channels=list(config.echo_reference_card_channels or []))
+
+
+@bp.route("/api/echo_cancellation/reference", methods=["POST"])
+def set_echo_reference():
+    """Explicit Card slot picker, independent of the enable toggle --
+    lets the user choose which two Card outputs get the console's Main
+    L/R bus, rather than always auto-picking the first two free slots."""
+    config = current_app.extensions["app_config"]
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    body = request.get_json(force=True, silent=True) or {}
+
+    card_channels = body.get("card_channels")
+    if not isinstance(card_channels, list) or len(card_channels) != 2:
+        return jsonify(error="card_channels must be a list of exactly 2 Card slot numbers"), 400
+    try:
+        left, right = int(card_channels[0]), int(card_channels[1])
+    except (TypeError, ValueError):
+        return jsonify(error="card_channels must be two integers"), 400
+    if left == right:
+        return jsonify(error="left and right must be different Card slots"), 400
+
+    osc, error = _osc_or_error()
+    if error:
+        return error
+
+    correlation_id = diagnostics.log_user_action("set_echo_reference", {"card_channels": [left, right]})
+    try:
+        slots = auto_route_reference_signal(
+            osc, diagnostics, config, state, correlation_id=correlation_id, card_channels=(left, right)
+        )
+    except EchoCancellationError as exc:
+        return jsonify(error=str(exc)), 500
+    return jsonify(reference_card_channels=list(slots))
 
 
 # -- diagnostics ---------------------------------------------------------------

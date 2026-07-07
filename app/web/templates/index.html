@@ -180,6 +180,23 @@
     .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; background: none; color: var(--text-muted); }
     .num-input { width: 4.2rem; }
 
+    .level-meter {
+      position: relative; width: 5rem; height: 0.55rem;
+      background: var(--idle-bg); border-radius: 999px; overflow: hidden;
+    }
+    .level-meter-fill {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+      background: var(--success);
+      transition: width 0.12s linear, background 0.12s linear;
+    }
+    .level-meter-fill.hot { background: var(--danger); }
+
+    .channel-name-cell { white-space: nowrap; }
+    .color-swatch {
+      display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 3px;
+      margin-right: 0.4rem; vertical-align: middle; border: 1px solid rgba(0, 0, 0, 0.25);
+    }
+
     .event-log {
       max-height: 260px; overflow-y: auto;
       background: #0d0e12; color: #d7d8de;
@@ -253,6 +270,12 @@
           <label for="echo-toggle">Echo cancellation</label>
           <input type="checkbox" id="echo-toggle">
         </div>
+        <div class="field">
+          <label for="echo-ref-left">Reference L/R</label>
+          <input type="number" id="echo-ref-left" min="1" max="48" placeholder="L" style="width: 4rem;">
+          <input type="number" id="echo-ref-right" min="1" max="48" placeholder="R" style="width: 4rem;">
+          <button class="btn btn-secondary btn-sm" id="echo-ref-set-btn">Set Reference</button>
+        </div>
         <div id="echo-status" class="status"></div>
       </section>
     </div>
@@ -265,6 +288,7 @@
         <button class="btn btn-secondary" id="restore-btn">Restore Snapshot</button>
         <button class="btn btn-secondary" id="bypass-all-btn">Bypass All</button>
         <button class="btn btn-secondary" id="reinsert-all-btn">Re-insert All</button>
+        <button class="btn btn-secondary" id="refresh-names-btn">Refresh Names</button>
       </div>
       <div id="routing-status" class="status"></div>
 
@@ -280,8 +304,8 @@
         <table id="channel-table">
           <thead>
             <tr>
-              <th></th><th>Ch</th><th>State</th><th>Card Slot</th><th>MIDI Slot</th><th>Notches</th>
-              <th>AI</th><th>Mode</th><th>Sensitivity</th><th>Action</th>
+              <th></th><th>Ch</th><th>Name</th><th>State</th><th>Level</th><th>Card Slot</th><th>MIDI Slot</th><th>Notches</th>
+              <th>AI</th><th>Echo</th><th>Mode</th><th>Sensitivity</th><th>Action</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -374,6 +398,16 @@
       }
     }
 
+    async function loadEchoState() {
+      try {
+        const data = await api("/api/state");
+        el("echo-toggle").checked = Boolean(data.config.echo_cancellation_enabled);
+        showEchoReference(data.config.echo_reference_card_channels);
+      } catch (err) {
+        setStatus("echo-status", `Failed to load echo cancellation state: ${err}`, "error");
+      }
+    }
+
     el("console-connect-btn").addEventListener("click", async () => {
       const host = el("console-host").value.trim();
       if (!host) {
@@ -388,6 +422,15 @@
         });
         setStatus("console-status", `Connected: ${data.xinfo.name || ""} ${data.xinfo.model || ""} (firmware ${data.xinfo.version || "?"})`, "success");
         setConnectionBadge(true, "Console connected");
+        await loadChannels();
+        try {
+          // Best-effort -- names/colors are cosmetic, so a slow or
+          // non-replying console here shouldn't surface as an error.
+          await api("/api/channels/refresh_names", { method: "POST" });
+          await loadChannels();
+        } catch (err) {
+          // ignore
+        }
       } catch (err) {
         setStatus("console-status", `Connect failed: ${err}`, "error");
         setConnectionBadge(false, "Console disconnected");
@@ -479,6 +522,16 @@
     let visibleChannels = loadVisibleChannels();
     let showAllChannels = false;
     let latestChannels = [];
+    let latestLevels = {};
+
+    // X32 scribble-strip color tokens -> CSS colors. RD/GN/YE/BL/CY are
+    // independently confirmed against a real scene file dump
+    // (app.osc.scribble_strip.CONFIRMED_COLORS); MG/WH/OFF follow the
+    // documented standard palette by convention, not independently verified.
+    const SCRIBBLE_COLOR_MAP = {
+      OFF: "#888888", RD: "#e04040", GN: "#40c060", YE: "#e0c020",
+      BL: "#4070e0", MG: "#c050c0", CY: "#40c0d0", WH: "#e0e0e0",
+    };
 
     function channelRow(channel, isActive) {
       const tr = document.createElement("tr");
@@ -502,6 +555,19 @@
       const cell = (text) => { const td = document.createElement("td"); td.textContent = text; return td; };
       tr.appendChild(cell(channel.index));
 
+      const nameCell = document.createElement("td");
+      nameCell.className = "channel-name-cell";
+      if (channel.scribble_name) {
+        const swatch = document.createElement("span");
+        swatch.className = "color-swatch";
+        swatch.style.backgroundColor = SCRIBBLE_COLOR_MAP[channel.scribble_color] || SCRIBBLE_COLOR_MAP.OFF;
+        nameCell.appendChild(swatch);
+        nameCell.appendChild(document.createTextNode(channel.scribble_name));
+      } else {
+        nameCell.textContent = "-";
+      }
+      tr.appendChild(nameCell);
+
       const stateCell = document.createElement("td");
       const chip = document.createElement("span");
       if (channel.card_out_slot === null) {
@@ -516,6 +582,20 @@
       }
       stateCell.appendChild(chip);
       tr.appendChild(stateCell);
+
+      const levelCell = document.createElement("td");
+      if (channel.card_out_slot !== null) {
+        const meter = document.createElement("div");
+        meter.className = "level-meter";
+        meter.dataset.cardSlot = channel.card_out_slot;
+        const fill = document.createElement("div");
+        fill.className = "level-meter-fill";
+        meter.appendChild(fill);
+        levelCell.appendChild(meter);
+      } else {
+        levelCell.textContent = "-";
+      }
+      tr.appendChild(levelCell);
 
       tr.appendChild(cell(channel.card_out_slot ?? "-"));
       tr.appendChild(cell(channel.midi_slot ?? "-"));
@@ -549,6 +629,25 @@
       });
       aiCell.appendChild(aiCheckbox);
       tr.appendChild(aiCell);
+
+      const echoCell = document.createElement("td");
+      const echoCheckbox = document.createElement("input");
+      echoCheckbox.type = "checkbox";
+      echoCheckbox.checked = channel.echo_cancellation_enabled;
+      echoCheckbox.title = "Echo cancellation for this channel (needs the global toggle + reference enabled too)";
+      echoCheckbox.addEventListener("change", async () => {
+        try {
+          await api(`/api/channels/${channel.index}/echo_toggle`, {
+            method: "POST",
+            body: JSON.stringify({ enabled: echoCheckbox.checked }),
+          });
+        } catch (err) {
+          setStatus("routing-status", `Echo toggle failed: ${err}`, "error");
+          echoCheckbox.checked = !echoCheckbox.checked;
+        }
+      });
+      echoCell.appendChild(echoCheckbox);
+      tr.appendChild(echoCell);
 
       const modeCell = document.createElement("td");
       const modeSelect = document.createElement("select");
@@ -650,6 +749,7 @@
         : `Showing ${toShow.length} of ${latestChannels.length} channels.`;
 
       updateAddChannelSelect(toShow);
+      applyLevels(latestLevels);  // freshly-created meter bars start from the last known reading, not 0
     }
 
     el("add-channel-select").addEventListener("change", () => {
@@ -735,6 +835,23 @@
       }
     });
 
+    el("refresh-names-btn").addEventListener("click", async () => {
+      try {
+        await api("/api/channels/refresh_names", { method: "POST" });
+        await loadChannels();
+        setStatus("routing-status", "Channel names/colors refreshed from console.", "success");
+      } catch (err) {
+        setStatus("routing-status", `Refresh names failed: ${err}`, "error");
+      }
+    });
+
+    function showEchoReference(refChannels) {
+      if (refChannels && refChannels.length === 2) {
+        el("echo-ref-left").value = refChannels[0];
+        el("echo-ref-right").value = refChannels[1];
+      }
+    }
+
     el("echo-toggle").addEventListener("change", async () => {
       const enabled = el("echo-toggle").checked;
       try {
@@ -742,12 +859,32 @@
           method: "POST",
           body: JSON.stringify({ enabled }),
         });
+        showEchoReference(data.reference_card_channels);
         setStatus("echo-status", data.reference_card_channels && data.reference_card_channels.length
           ? `Reference: Card ${data.reference_card_channels.join(", ")}`
           : (enabled ? "Enabled." : "Disabled."), "success");
       } catch (err) {
         setStatus("echo-status", `Failed: ${err}`, "error");
         el("echo-toggle").checked = !enabled;
+      }
+    });
+
+    el("echo-ref-set-btn").addEventListener("click", async () => {
+      const left = parseInt(el("echo-ref-left").value, 10);
+      const right = parseInt(el("echo-ref-right").value, 10);
+      if (!left || !right) {
+        setStatus("echo-status", "Enter both a left and right Card slot number.", "error");
+        return;
+      }
+      try {
+        const data = await api("/api/echo_cancellation/reference", {
+          method: "POST",
+          body: JSON.stringify({ card_channels: [left, right] }),
+        });
+        showEchoReference(data.reference_card_channels);
+        setStatus("echo-status", `Reference set: Card ${data.reference_card_channels.join(", ")}`, "success");
+      } catch (err) {
+        setStatus("echo-status", `Set reference failed: ${err}`, "error");
       }
     });
 
@@ -793,6 +930,34 @@
       }
     }
 
+    // Levels are keyed by Card slot number (a string, since JSON has no
+    // int keys) -- "is signal actually arriving on this slot," measured
+    // directly from the audio this app is processing, not the console's
+    // own (still-unconfirmed) /meters OSC blobs.
+    function applyLevels(levels) {
+      latestLevels = levels;
+      document.querySelectorAll(".level-meter").forEach((meter) => {
+        const dbfs = levels[meter.dataset.cardSlot];
+        const fill = meter.querySelector(".level-meter-fill");
+        if (dbfs === undefined) {
+          fill.style.width = "0%";
+          return;
+        }
+        const pct = Math.max(0, Math.min(100, ((dbfs + 60) / 60) * 100));
+        fill.style.width = `${pct}%`;
+        fill.classList.toggle("hot", dbfs > -3);
+      });
+    }
+
+    async function loadInitialLevels() {
+      try {
+        const data = await api("/api/channels/meters");
+        applyLevels(data.levels);
+      } catch (err) {
+        // Non-fatal -- live levels still arrive over the socket below.
+      }
+    }
+
     if (typeof io !== "undefined") {
       const socket = io();
       socket.on("diagnostics_event", (event) => {
@@ -801,12 +966,15 @@
           loadChannels();
         }
       });
+      socket.on("channel_meters", applyLevels);
     }
 
     loadConsoleStatus();
     loadDevices();
     loadChannels();
     loadRecentEvents();
+    loadInitialLevels();
+    loadEchoState();
   </script>
 </body>
 </html>

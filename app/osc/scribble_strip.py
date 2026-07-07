@@ -38,6 +38,20 @@ def read_channel_config(osc: OscConnection, channel: int, correlation_id: str | 
     return osc.query(channel_config_addr(channel), correlation_id=correlation_id)
 
 
+def read_all_channel_configs(
+    osc: OscConnection,
+    correlation_id: str | None = None,
+) -> dict[int, tuple | None]:
+    """(name, icon, color, source_number) for all 32 channels in one paced
+    batch (app.osc.connection.OscConnection.query_many), for the routing
+    grid's name/color columns. A channel whose query timed out maps to
+    None rather than raising -- one unresponsive channel shouldn't block
+    displaying the other 31."""
+    addr_to_channel = {channel_config_addr(ch): ch for ch in range(1, 33)}
+    results = osc.query_many(list(addr_to_channel), correlation_id=correlation_id)
+    return {addr_to_channel[addr]: value for addr, value in results.items()}
+
+
 def write_channel_scribble(
     osc: OscConnection,
     diagnostics: DiagnosticsLogger,

@@ -27,12 +27,14 @@ import time
 from collections.abc import Callable
 
 from app.diagnostics.logger import DiagnosticsLogger
+from app.osc.assign_set import restore_assignments
 from app.osc.connection import OscConnection
 from app.osc.routing_apply import restore_snapshot
 from app.osc.routing_snapshot import RoutingSnapshot
 from app.state import AppState
 
 RestoreFn = Callable[..., list[str]]
+AssignSetSnapshot = dict[str, tuple | None]
 
 _CAUGHT_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
@@ -45,6 +47,8 @@ class Watchdog:
         state: AppState,
         snapshot_provider: Callable[[], RoutingSnapshot | None],
         restore_fn: RestoreFn = restore_snapshot,
+        assign_set_snapshot_provider: Callable[[], AssignSetSnapshot | None] | None = None,
+        restore_assignments_fn: RestoreFn = restore_assignments,
     ) -> None:
         # Mutable, not just constructor-injected: app.web.routes' console
         # connect/disconnect endpoints reassign this at runtime (there is
@@ -56,6 +60,12 @@ class Watchdog:
         self.state = state
         self.snapshot_provider = snapshot_provider
         self.restore_fn = restore_fn
+        # Optional: restores Set A/B hardware-control assignments alongside
+        # routing. None (the default) means "nothing to restore" -- callers
+        # that never provisioned Set A/B (or don't care) aren't forced to
+        # supply this.
+        self.assign_set_snapshot_provider = assign_set_snapshot_provider
+        self.restore_assignments_fn = restore_assignments_fn
 
         self._started = False
         self._restore_lock = threading.Lock()
@@ -94,10 +104,11 @@ class Watchdog:
             self._previous_excepthook = None
 
     def trigger_full_restore(self, reason: str) -> list[str]:
-        """Replays the most recent routing snapshot. Idempotent per armed
-        session -- a signal handler followed by the atexit hook it also
-        triggers (the normal SIGTERM sequence) must not replay the
-        snapshot twice. Returns the mismatch list from restore_snapshot
+        """Replays the most recent routing snapshot, and the most recent
+        Set A/B assign-set snapshot if a provider for one was supplied.
+        Idempotent per armed session -- a signal handler followed by the
+        atexit hook it also triggers (the normal SIGTERM sequence) must
+        not replay snapshots twice. Returns the combined mismatch list
         (empty = clean restore)."""
         with self._restore_lock:
             if self._restored:
@@ -109,16 +120,25 @@ class Watchdog:
             return []
 
         snapshot = self.snapshot_provider()
-        if snapshot is None:
+        assign_set_snapshot = self.assign_set_snapshot_provider() if self.assign_set_snapshot_provider else None
+        if snapshot is None and assign_set_snapshot is None:
             self.diagnostics.log_watchdog("restore_skipped_no_snapshot", {"reason": reason})
             return []
 
         started_at = time.monotonic()
         correlation_id = self.diagnostics.new_correlation_id()
         self.diagnostics.log_watchdog("crash_restore_triggered", {"reason": reason}, correlation_id=correlation_id)
-        mismatches = self.restore_fn(
-            self.osc, self.diagnostics, snapshot, self.state, correlation_id=correlation_id
-        )
+
+        mismatches: list[str] = []
+        if snapshot is not None:
+            mismatches += self.restore_fn(
+                self.osc, self.diagnostics, snapshot, self.state, correlation_id=correlation_id
+            )
+        if assign_set_snapshot is not None:
+            mismatches += self.restore_assignments_fn(
+                self.osc, self.diagnostics, assign_set_snapshot, correlation_id=correlation_id
+            )
+
         self.diagnostics.log_watchdog(
             "crash_restore_completed",
             {

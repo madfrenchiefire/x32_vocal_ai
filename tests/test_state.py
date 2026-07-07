@@ -27,6 +27,31 @@ def test_set_snapshot_tracks_history():
     assert state.snapshot_history == ["/tmp/a.json", "/tmp/b.json"]
 
 
+def test_set_assign_set_snapshot():
+    state = AppState()
+    assert state.assign_set_snapshot is None
+    state.set_assign_set_snapshot({"/config/ctrl/A/enc/1": (1,)})
+    assert state.assign_set_snapshot == {"/config/ctrl/A/enc/1": (1,)}
+    assert state.summary()["has_assign_set_snapshot"] is True
+
+
+def test_apply_channel_configs_sets_name_and_color():
+    state = AppState()
+    state.apply_channel_configs({1: ("Ruby Vocal", 51, "YE", 1), 9: ("Left Vocal", 50, "RD", 9)})
+    assert state.channels[1].scribble_name == "Ruby Vocal"
+    assert state.channels[1].scribble_color == "YE"
+    assert state.channels[9].scribble_name == "Left Vocal"
+    assert state.channels[9].scribble_color == "RD"
+
+
+def test_apply_channel_configs_leaves_unresolved_channels_untouched():
+    state = AppState()
+    state.apply_channel_configs({1: ("Ruby Vocal", 51, "YE", 1)})
+    state.apply_channel_configs({1: None, 2: None})  # a re-query that timed out this time
+    assert state.channels[1].scribble_name == "Ruby Vocal"  # not blanked out
+    assert state.channels[2].scribble_name is None
+
+
 def test_summary_is_a_plain_dict_copy():
     state = AppState()
     state.update_connection(connected=True)
