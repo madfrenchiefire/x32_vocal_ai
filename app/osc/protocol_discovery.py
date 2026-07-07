@@ -3,7 +3,7 @@
 CLAUDE.md's "Open items to verify" section lists several values this
 project has never independently confirmed against real hardware (the raw
 `userrout/out` value for "Main L/R", the MIDI-assignment string format for
-`/config/ctrl/*`, the `/meters` blob layout). Confirming any of them has
+`/config/userctrl/*`, the `/meters` blob layout). Confirming any of them has
 always meant the same manual loop: read a baseline, go change something on
 the console, read again, diff. This module is that loop, generalized and
 made reusable -- both for the fully-passive stuff a console will always
@@ -106,10 +106,12 @@ def sniff_pushed_changes(
     this discovers addresses this project has never seen: have a human
     change the control in question on the desk while this runs, and
     whatever address it lives at shows up in the returned
-    (address, args) list. Confirmed necessary by a real-console capture
-    (2026-07-07, firmware 4.13) where all 24 guessed
-    /config/ctrl/A|B/enc|btn/N addresses returned nothing even to passive
-    queries -- polling guessed addresses can't discover the right ones.
+    (address, args) list. Proved itself immediately: a real-console sniff
+    (2026-07-07, firmware 4.13) revealed the assign-set encoders live at
+    /config/userctrl/A/enc/N (string values like 'MC01000') after all 24
+    originally guessed /config/ctrl/... addresses had returned nothing even
+    to passive queries -- polling guessed addresses can't discover the
+    right ones.
 
     Ctrl+C stops early and returns whatever was captured so far rather
     than discarding it -- these runs involve a human standing at a console,

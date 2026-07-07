@@ -38,13 +38,17 @@ def test_encoder_and_button_addr_reject_out_of_range_index():
     with pytest.raises(ValueError):
         encoder_addr("A", 5)
     with pytest.raises(ValueError):
-        button_addr("B", 9)
+        button_addr("B", 4)  # buttons are numbered 5-12, continuing after the encoders
+    with pytest.raises(ValueError):
+        button_addr("B", 13)
 
 
 def test_all_assign_set_addresses_covers_both_sets():
     addrs = all_assign_set_addresses()
-    assert "/config/ctrl/A/enc/1" in addrs
-    assert "/config/ctrl/B/btn/8" in addrs
+    # Encoder shape confirmed by real-console sniff (2026-07-07); buttons
+    # numbered 5-12 per the same userctrl tree.
+    assert "/config/userctrl/A/enc/1" in addrs
+    assert "/config/userctrl/B/btn/12" in addrs
     assert len(addrs) == 2 * (4 + 8)
 
 
@@ -59,7 +63,7 @@ def test_snapshot_assign_sets_reads_all_addresses(fake_x32, diagnostics, app_sta
         osc.close()
 
     assert len(results) == 24
-    assert results["/config/ctrl/A/enc/1"] == ("PLACEHOLDER",)
+    assert results["/config/userctrl/A/enc/1"] == ("PLACEHOLDER",)
 
 
 def test_write_assignment_verifies_readback(fake_x32, diagnostics, app_state):

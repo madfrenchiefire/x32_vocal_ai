@@ -30,8 +30,8 @@ def test_set_snapshot_tracks_history():
 def test_set_assign_set_snapshot():
     state = AppState()
     assert state.assign_set_snapshot is None
-    state.set_assign_set_snapshot({"/config/ctrl/A/enc/1": (1,)})
-    assert state.assign_set_snapshot == {"/config/ctrl/A/enc/1": (1,)}
+    state.set_assign_set_snapshot({"/config/userctrl/A/enc/1": (1,)})
+    assert state.assign_set_snapshot == {"/config/userctrl/A/enc/1": (1,)}
     assert state.summary()["has_assign_set_snapshot"] is True
 
 

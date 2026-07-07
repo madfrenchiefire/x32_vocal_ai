@@ -1,18 +1,27 @@
 """Assign-set (Set A/B) provisioning.
 
-Address shape (`/config/ctrl/<A|B>/<enc|btn>/<N>`) follows CLAUDE.md's Slot
-model: 4 encoders (sensitivity) + 8 buttons (btn 1-4 = AI on/off, btn 5-8 =
-insert/bypass) per set, Set A covering channel slots 1-4, Set B covering
-slots 5-8.
+Address shape: `/config/userctrl/<A|B>/<enc|btn>/<N>` -- **confirmed against
+real hardware for encoders (2026-07-07, firmware 4.13)** via the /xremote
+sniffer (`app.osc.protocol_discovery.sniff_pushed_changes`): changing Set A
+encoder assignments on a live console pushed `/config/userctrl/A/enc/1`..
+`/enc/3` with string values (`'X000'`, `'S0000'`, `'MC01000'`, `'MC03000'`,
+...). The originally guessed `/config/ctrl/...` shape got no reply on the
+same console and is wrong. Buttons observed to follow the same
+`/config/userctrl/<set>/btn/<N>` shape but with N running 5-12 (continuing
+past the 4 encoders) per Maillot's parameter tree -- that numbering is
+inferred, not yet sniffed on real hardware; the next passive
+`diagnose_console` capture confirms or refutes it for free (wrong
+addresses just read back None, which every caller here already tolerates).
 
-**The assignment value format is NOT confirmed** -- CLAUDE.md flags this
-explicitly ("Exact string encoding of MIDI assignments: verify against the
-Patrick-Gilles Maillot unofficial X32 OSC document, or empirically"). This
-module reads, writes, and restores whatever raw value is there or
-supplied -- it does not construct or guess the assignment value itself.
-Get the real format by assigning a control on the console's Setup > Remote
-screen, querying the same address, and copying exactly what comes back;
-only then wire a real value into app.midi.service's provisioning step.
+**The assignment value *string format* is partially observed, not
+decoded**: `'MC01000'`/`'MC03000'`/`'MC04000'` correlate with MIDI-CC-type
+assignments (which digits are the CC number vs the MIDI channel is not yet
+pinned down); `'S0000'`/`'S5000'`/`'X000'` are other assignment types,
+un-decoded. This module therefore still reads, writes, and restores values
+as opaque data -- it does not construct or interpret them. Only wire a real
+constructed value into app.midi.service's provisioning step once the digit
+positions are confirmed (assign a known CC + channel on the desk and read
+the string).
 
 Set C is off-limits per CLAUDE.md's core design principle #4 -- VALID_SETS
 only ever contains "A" and "B", and there is no function here that can
@@ -27,7 +36,8 @@ from app.osc.connection import OscConnection
 
 VALID_SETS = ("A", "B")
 NUM_ENCODERS_PER_SET = 4
-NUM_BUTTONS_PER_SET = 8
+# Buttons continue the numbering after the 4 encoders: btn/5 .. btn/12.
+BUTTON_INDICES = tuple(range(5, 13))
 
 
 class AssignSetError(Exception):
@@ -43,21 +53,21 @@ def encoder_addr(set_name: str, index: int) -> str:
     _check_set(set_name)
     if not 1 <= index <= NUM_ENCODERS_PER_SET:
         raise ValueError(f"encoder index must be 1-{NUM_ENCODERS_PER_SET}, got {index}")
-    return f"/config/ctrl/{set_name}/enc/{index}"
+    return f"/config/userctrl/{set_name}/enc/{index}"
 
 
 def button_addr(set_name: str, index: int) -> str:
     _check_set(set_name)
-    if not 1 <= index <= NUM_BUTTONS_PER_SET:
-        raise ValueError(f"button index must be 1-{NUM_BUTTONS_PER_SET}, got {index}")
-    return f"/config/ctrl/{set_name}/btn/{index}"
+    if index not in BUTTON_INDICES:
+        raise ValueError(f"button index must be {BUTTON_INDICES[0]}-{BUTTON_INDICES[-1]}, got {index}")
+    return f"/config/userctrl/{set_name}/btn/{index}"
 
 
 def all_assign_set_addresses() -> list[str]:
     addrs = []
     for set_name in VALID_SETS:
         addrs += [encoder_addr(set_name, i) for i in range(1, NUM_ENCODERS_PER_SET + 1)]
-        addrs += [button_addr(set_name, i) for i in range(1, NUM_BUTTONS_PER_SET + 1)]
+        addrs += [button_addr(set_name, i) for i in BUTTON_INDICES]
     return addrs
 
 

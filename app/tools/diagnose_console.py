@@ -223,14 +223,16 @@ def main(argv: list[str] | None = None) -> int:
 
             report["assign_set_sniff"] = _prompt_and_sniff(
                 osc, diagnostics, correlation_id,
-                "MIDI assign-set (Set A/B) address + format discovery",
+                "MIDI assign-set (Set A/B) value-format discovery",
                 (
-                    "On the console: Setup > Assign (or Setup > Remote), change any Set A/B control\n"
-                    "assignment -- e.g. assign Encoder 1 to something, or toggle a button's function.\n"
-                    "The console pushes the changed address+value to us via /xremote, so this works\n"
-                    "even though the addresses this project guessed (/config/ctrl/A/enc/1 etc.) got\n"
-                    "no reply on a real 4.13 console -- whatever address the console actually uses\n"
-                    "will show up below."
+                    "Encoder address shape is already confirmed (/config/userctrl/A/enc/N, string\n"
+                    "values like 'MC01000'). Two things still need pinning down -- do either or both\n"
+                    "while this records:\n"
+                    "  1. BUTTON numbering: change a Set A/B *button* assignment (expected to push\n"
+                    "     /config/userctrl/A/btn/5..12 -- inferred, not yet seen).\n"
+                    "  2. VALUE format digits: assign an encoder to a MIDI CC with a *known* CC\n"
+                    "     number and MIDI channel (e.g. CC 7, channel 16), so the resulting string\n"
+                    "     reveals which digits mean what."
                 ),
                 args.watch_timeout,
             )

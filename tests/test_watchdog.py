@@ -97,7 +97,7 @@ def test_trigger_full_restore_skips_when_no_snapshot(diagnostics, app_state):
 
 def test_trigger_full_restore_also_restores_assign_sets(diagnostics, app_state):
     routing_snapshot = _make_snapshot()
-    assign_set_snapshot = {"/config/ctrl/A/enc/1": (1,)}
+    assign_set_snapshot = {"/config/userctrl/A/enc/1": (1,)}
     restore_fn = MagicMock(return_value=[])
     restore_assignments_fn = MagicMock(return_value=[])
     watchdog = Watchdog(
@@ -118,7 +118,7 @@ def test_trigger_full_restore_also_restores_assign_sets(diagnostics, app_state):
 
 
 def test_trigger_full_restore_restores_assign_sets_even_without_routing_snapshot(diagnostics, app_state):
-    assign_set_snapshot = {"/config/ctrl/A/enc/1": (1,)}
+    assign_set_snapshot = {"/config/userctrl/A/enc/1": (1,)}
     restore_fn = MagicMock(return_value=[])
     restore_assignments_fn = MagicMock(return_value=[])
     watchdog = Watchdog(

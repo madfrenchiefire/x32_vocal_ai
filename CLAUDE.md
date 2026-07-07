@@ -216,11 +216,10 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   state (inserted vs bypassed, AI active/suppressing). Restore names/colors on disengage
   (they're in the snapshot).
 - **Assign-set provisioning**: read/store existing Set A/B assignments first, then
-  write MIDI-type assignments. **The `/config/ctrl/A|B/enc|btn/N` address shape this
-  project guessed is wrong on real hardware** — all 24 addresses got no reply on a
-  live 4.13 console (see "Open items to verify"); discover the real shape + value
-  format empirically via `app.tools.diagnose_console`'s sniff step (change an
-  assignment on the desk while it records what the console pushes over `/xremote`).
+  write MIDI-type assignments. Address shape **confirmed by live sniff for
+  encoders**: `/config/userctrl/<A|B>/enc/<1-4>`, string values (`'MC01000'` etc.);
+  buttons assumed `/config/userctrl/<set>/btn/<5-12>`, and the exact digit meaning
+  of the MIDI-CC value strings is still open — see "Open items to verify".
 
 ### 3. MIDI service
 - **Port selection is user-configurable, not hardcoded.** The app must not assume
@@ -380,25 +379,37 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   which constant to update with whatever got confirmed that run. `--passive-only`
   skips every interactive step (useful for a quick capture without standing at
   the console); each guided step is individually Ctrl+C-skippable.
-- **MIDI-assignment addresses: the guessed `/config/ctrl/A|B/enc|btn/N` shape is
-  wrong on real hardware (2026-07-07, firmware 4.13)** -- all 24 such addresses
-  returned *no reply at all* to passive queries on a live console (not "empty
-  value"; no reply, same as any unrecognized address). The spec'd shape came from
-  this project's own reading of the assign section, not from a confirmed source,
-  and evidently doesn't exist in the parameter tree. `app/osc/assign_set.py`
-  still uses it (its snapshot/restore degrades safely to a no-op when every
-  read returns None), pending discovery of the real shape via
-  `app.tools.diagnose_console`'s sniff step: change a Set A/B assignment on the
-  console while it records what the console pushes over `/xremote` -- whatever
-  address the console actually uses shows up verbatim, no guessing required.
-- `/meters` blob layout for the meters we need. A first capture attempt
-  (2026-07-07, firmware 4.13) sending a plain int subscribe *to* `/meters/1`
-  got zero replies -- `capture_meters_sample` now uses the documented form
-  instead (send the parent `/meters` address with the wanted blob path as a
-  string argument, e.g. `/meters ,s "/meters/1"`; the console then streams
-  blobs on that path for ~10s). That form is from Maillot's doc, not yet
-  confirmed against our own hardware -- rerun `app.tools.diagnose_console`
-  to test it.
+- **MIDI-assignment addresses: real shape discovered by sniff (2026-07-07,
+  firmware 4.13) — `/config/userctrl/<A|B>/enc/<1-4>`, string values.** The
+  originally guessed `/config/ctrl/...` shape got no reply at all on a live
+  console (not "empty value"; no reply, same as any unrecognized address); the
+  first live run of `diagnose_console`'s sniff step then caught the console
+  pushing `/config/userctrl/A/enc/1`..`/enc/3` with string values as Set A
+  encoder assignments were changed on the desk: `'X000'`, `'S0000'`, `'S5000'`
+  (pre-existing assignments of other types), then `'MC01000'`/`'MC03000'`/
+  `'MC04000'` (MIDI-CC-type assignments). `app/osc/assign_set.py` now uses the
+  confirmed shape. Still open within this item: (a) button numbering — assumed
+  `/config/userctrl/<set>/btn/<5-12>` (continuing past the 4 encoders, per
+  Maillot's tree), not yet observed live; the next passive capture confirms it
+  for free (wrong addresses read back None harmlessly); (b) which digits of the
+  `'MC.....'` string are the CC number vs the MIDI channel — assign a *known*
+  CC + channel on the desk during the sniff step to pin it down before
+  constructing assignment values in `app.midi.service._provision_slot`.
+- **`/meters` blob *structure* confirmed on real hardware (2026-07-07, firmware
+  4.13); slot *meaning* still unmapped.** Subscribing with the documented form
+  (send the parent `/meters` address with the blob path as a string argument,
+  `/meters ,s "/meters/1"` — a plain int subscribe sent *to* `/meters/1` gets
+  nothing) streams one blob every ~50 ms for a few seconds. Each blob is
+  `int32 count + count × float32`, both **little-endian** (unlike OSC's own
+  big-endian wire format), floats 0..1: `/meters/1` = 96 values, `/meters/2` =
+  49 values. Decoder: `app.osc.meters.decode_meter_blob` (validated against the
+  committed real capture in `logs/protocol_discovery/`). Which slot is which
+  channel/bus is NOT yet mapped — the capture is consistent with `/meters/1`
+  slots 0-31 being channels 1-32 (all zero while every mic channel was silent),
+  but that's one uncontrolled observation; confirm with a controlled test
+  (signal on exactly one known channel, see which slot moves) before relying on
+  any index. The app's own UI meters don't depend on this either way (they're
+  computed from the app's captured audio, see "1. Audio engine").
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
 - **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
   from two sources: (1) a real console scene (`.scn`) file dump, and (2)
