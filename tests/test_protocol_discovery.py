@@ -6,7 +6,12 @@ import time
 from app.osc import addresses
 from app.osc.assign_set import all_assign_set_addresses
 from app.osc.connection import OscConnection
-from app.osc.protocol_discovery import capture_full_state, capture_meters_sample, watch_until_changed
+from app.osc.protocol_discovery import (
+    capture_full_state,
+    capture_meters_sample,
+    sniff_pushed_changes,
+    watch_until_changed,
+)
 from app.osc.scribble_strip import channel_config_addr
 
 
@@ -97,27 +102,81 @@ def test_watch_until_changed_calls_on_tick(fake_x32, diagnostics, app_state):
 
 
 def test_capture_meters_sample_records_whatever_arrives(fake_x32, diagnostics, app_state):
-    # subscribe_args=() -- a bare "get" on the fake console -- so the fake
-    # server answers from its pre-registered extra_responses instead of
-    # treating the subscribe attempt as a "set" that would overwrite it.
+    # The subscribe goes to the parent /meters address with the blob path
+    # as a string arg (documented form); the console then streams blobs on
+    # the blob path itself. The fake console doesn't implement that
+    # streaming, so simulate the console's push with a bare "get" on the
+    # blob path from a side thread (the fake replies from
+    # extra_responses, which reaches our listener just like a real push).
     fake_x32.extra_responses["/meters/1"] = (b"\x00\x01\x02\x03",)
     osc = _make_osc(fake_x32, diagnostics, app_state)
+
+    def _simulate_console_push():
+        time.sleep(0.1)
+        osc.send("/meters/1")
+
     try:
-        messages = capture_meters_sample(osc, diagnostics, address="/meters/1", subscribe_args=(), listen_sec=0.3)
+        threading.Thread(target=_simulate_console_push, daemon=True).start()
+        messages = capture_meters_sample(osc, diagnostics, meter_path="/meters/1", listen_sec=0.5)
     finally:
         osc.close()
 
     assert len(messages) == 1
     assert messages[0][0] == b"\x00\x01\x02\x03"
+    # The subscribe itself must have gone to the parent /meters address
+    # with the blob path as a string argument (the documented form) -- the
+    # fake console records any message-with-args as a "set".
+    assert fake_x32.extra_responses["/meters"] == ("/meters/1",)
 
 
 def test_capture_meters_sample_empty_when_nothing_replies(fake_x32, diagnostics, app_state):
     osc = _make_osc(fake_x32, diagnostics, app_state)
     try:
-        messages = capture_meters_sample(
-            osc, diagnostics, address="/meters/1", subscribe_args=(), listen_sec=0.2,
-        )
+        messages = capture_meters_sample(osc, diagnostics, meter_path="/meters/1", listen_sec=0.2)
     finally:
         osc.close()
 
     assert messages == []
+
+
+def test_sniff_pushed_changes_records_unsolicited_messages(fake_x32, diagnostics, app_state):
+    # Simulates the console pushing a state change on an address this
+    # project has never heard of -- the whole point of the sniffer vs
+    # watch_until_changed's known-address polling.
+    fake_x32.extra_responses["/some/unknown/address"] = ("MIDI CC 80", 1)
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+
+    def _simulate_console_push():
+        time.sleep(0.1)
+        osc.send("/some/unknown/address")  # bare get -> fake replies, arrives like a push
+
+    try:
+        threading.Thread(target=_simulate_console_push, daemon=True).start()
+        messages = sniff_pushed_changes(osc, diagnostics, duration_sec=0.5)
+    finally:
+        osc.close()
+
+    assert ("/some/unknown/address", ("MIDI CC 80", 1)) in messages
+
+
+def test_sniff_pushed_changes_empty_when_console_is_silent(fake_x32, diagnostics, app_state):
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    try:
+        messages = sniff_pushed_changes(osc, diagnostics, duration_sec=0.3)
+    finally:
+        osc.close()
+
+    assert messages == []
+
+
+def test_sniff_pushed_changes_calls_on_tick_and_unregisters(fake_x32, diagnostics, app_state):
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    ticks: list = []
+    try:
+        sniff_pushed_changes(osc, diagnostics, duration_sec=0.3, on_tick=ticks.append)
+        with osc._pending_lock:
+            assert osc._sniffers == []
+    finally:
+        osc.close()
+
+    assert len(ticks) > 0

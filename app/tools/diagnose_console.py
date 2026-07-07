@@ -34,9 +34,13 @@ from app.audio.echo_cancellation import MAIN_L_USERROUT_OUT_VALUE, MAIN_R_USERRO
 from app.config import load_config
 from app.diagnostics.logger import DiagnosticsLogger
 from app.osc import addresses
-from app.osc.assign_set import all_assign_set_addresses
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
-from app.osc.protocol_discovery import capture_full_state, capture_meters_sample, watch_until_changed
+from app.osc.protocol_discovery import (
+    capture_full_state,
+    capture_meters_sample,
+    sniff_pushed_changes,
+    watch_until_changed,
+)
 from app.state import AppState
 
 
@@ -101,19 +105,49 @@ def _prompt_and_watch(osc, addrs, diagnostics, correlation_id, label, instructio
     return changed
 
 
+def _prompt_and_sniff(osc, diagnostics, correlation_id, label, instructions, duration_sec) -> list:
+    """Record everything the console pushes (via the active /xremote
+    subscription) while the human makes a change on the desk -- for
+    discovering addresses we don't know in advance, where polling guessed
+    addresses (watch_until_changed) can't work. Returns [(address, args)]."""
+    print(f"\n--- {label} ---")
+    print(instructions)
+    print(f"Recording everything the console pushes for up to {duration_sec:.0f}s ... "
+          "(Ctrl+C to stop early and keep what's been captured)")
+
+    def _tick(elapsed: float) -> None:
+        remaining = duration_sec - elapsed
+        print(f"\r  ...{remaining:4.0f}s remaining", end="", flush=True)
+
+    messages = sniff_pushed_changes(
+        osc, diagnostics, duration_sec=duration_sec, on_tick=_tick, correlation_id=correlation_id,
+    )
+    print()
+    if messages:
+        print(f"  Captured {len(messages)} pushed message(s):")
+        for addr, msg_args in messages:
+            print(f"    {addr} {msg_args!r}")
+    else:
+        print("  Nothing was pushed -- either nothing changed on the console, or that control's"
+              " changes aren't broadcast via /xremote.")
+    return [{"address": addr, "args": list(msg_args)} for addr, msg_args in messages]
+
+
 def _capture_meters(osc, diagnostics, correlation_id, out_dir: Path, timestamp: str) -> dict:
     print("\n--- /meters blob capture (best-effort) ---")
-    print("Trying a couple of candidate addresses/subscribe args; the blob layout is still unconfirmed either way.")
+    print(
+        "Subscribing via the documented form (/meters with the blob path as a string arg);\n"
+        "the blob layout is still unconfirmed either way."
+    )
     meters_report: dict = {}
-    for address, subscribe_args in (("/meters/1", (0,)), ("/meters/2", (0,))):
-        print(f"  {address} with subscribe args {subscribe_args} ...")
+    for meter_path in ("/meters/1", "/meters/2"):
+        print(f"  /meters <- {meter_path!r} ...")
         messages = capture_meters_sample(
-            osc, diagnostics, address=address, subscribe_args=subscribe_args,
-            listen_sec=3.0, correlation_id=correlation_id,
+            osc, diagnostics, meter_path=meter_path, listen_sec=3.0, correlation_id=correlation_id,
         )
         entry: dict = {"message_count": len(messages)}
         if messages:
-            bin_path = out_dir / f"meters_{address.strip('/').replace('/', '_')}_{timestamp}.bin"
+            bin_path = out_dir / f"meters_{meter_path.strip('/').replace('/', '_')}_{timestamp}.bin"
             with bin_path.open("wb") as f:
                 for msg in messages:
                     for arg in msg:
@@ -123,7 +157,7 @@ def _capture_meters(osc, diagnostics, correlation_id, out_dir: Path, timestamp: 
             print(f"    got {len(messages)} message(s) -- raw bytes saved to {bin_path}")
         else:
             print("    nothing came back.")
-        meters_report[address] = entry
+        meters_report[meter_path] = entry
     return meters_report
 
 
@@ -187,12 +221,16 @@ def main(argv: list[str] | None = None) -> int:
                 args.watch_timeout,
             )
 
-            report["assign_set_format_watch"] = _prompt_and_watch(
-                osc, all_assign_set_addresses(), diagnostics, correlation_id,
-                "MIDI assign-set (Set A/B) string format",
+            report["assign_set_sniff"] = _prompt_and_sniff(
+                osc, diagnostics, correlation_id,
+                "MIDI assign-set (Set A/B) address + format discovery",
                 (
-                    "On the console: Setup > Remote, assign any control (e.g. Set A, Encoder 1) to\n"
-                    "whatever it controls -- this will show exactly what raw value that produced."
+                    "On the console: Setup > Assign (or Setup > Remote), change any Set A/B control\n"
+                    "assignment -- e.g. assign Encoder 1 to something, or toggle a button's function.\n"
+                    "The console pushes the changed address+value to us via /xremote, so this works\n"
+                    "even though the addresses this project guessed (/config/ctrl/A/enc/1 etc.) got\n"
+                    "no reply on a real 4.13 console -- whatever address the console actually uses\n"
+                    "will show up below."
                 ),
                 args.watch_timeout,
             )
@@ -223,10 +261,18 @@ def main(argv: list[str] | None = None) -> int:
                 "this console/firmware may differ -- worth a second look."
             )
             printed_something = True
-        for addr, diff in (report.get("assign_set_format_watch") or {}).items():
+        # A real console pushes the same address repeatedly while a control
+        # is being adjusted -- summarize each distinct address+value once.
+        seen: set = set()
+        for pushed in (report.get("assign_set_sniff") or []):
+            key = (pushed["address"], tuple(pushed["args"]))
+            if key in seen:
+                continue
+            seen.add(key)
             print(
-                f"MIDI assign-set format: {addr} = {diff['after']!r} -- wire this format into "
-                "app.midi.service._provision_slot via app.osc.assign_set.write_assignment"
+                f"MIDI assign-set: console pushed {pushed['address']} = {pushed['args']!r} -- "
+                "this is the real address+format; update app.osc.assign_set's address shape "
+                "to match, then wire app.midi.service._provision_slot"
             )
             printed_something = True
         if not args.passive_only and not printed_something:

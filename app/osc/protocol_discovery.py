@@ -16,6 +16,7 @@ is the actual "one tool" -- this module is its testable core.
 """
 from __future__ import annotations
 
+import queue
 import time
 from typing import Any, Callable
 
@@ -90,28 +91,87 @@ def watch_until_changed(
     return changed
 
 
+def sniff_pushed_changes(
+    osc: OscConnection,
+    diagnostics: DiagnosticsLogger,
+    duration_sec: float = 60.0,
+    correlation_id: str | None = None,
+    on_tick: Callable[[float], None] | None = None,
+) -> list[tuple[str, tuple]]:
+    """Record every message the console sends us over duration_sec,
+    whatever its address. With the /xremote keepalive active (always, on a
+    connected OscConnection), the console pushes address+value for
+    anything changed on the console surface -- so unlike
+    watch_until_changed (which can only poll addresses it already knows),
+    this discovers addresses this project has never seen: have a human
+    change the control in question on the desk while this runs, and
+    whatever address it lives at shows up in the returned
+    (address, args) list. Confirmed necessary by a real-console capture
+    (2026-07-07, firmware 4.13) where all 24 guessed
+    /config/ctrl/A|B/enc|btn/N addresses returned nothing even to passive
+    queries -- polling guessed addresses can't discover the right ones.
+
+    Ctrl+C stops early and returns whatever was captured so far rather
+    than discarding it -- these runs involve a human standing at a console,
+    and re-doing the physical step because the tool threw away the data is
+    exactly the failure mode this tool exists to avoid."""
+    correlation_id = correlation_id or diagnostics.new_correlation_id()
+    q: queue.Queue = queue.Queue()
+    osc.add_sniffer(q)
+    messages: list[tuple[str, tuple]] = []
+    start = time.monotonic()
+    try:
+        while time.monotonic() - start < duration_sec:
+            if on_tick is not None:
+                on_tick(time.monotonic() - start)
+            try:
+                messages.append(q.get(timeout=0.25))
+            except queue.Empty:
+                continue
+    except KeyboardInterrupt:
+        pass  # keep what we already captured -- see docstring
+    finally:
+        osc.remove_sniffer(q)
+
+    diagnostics.log_state_change(
+        "protocol_discovery_sniff",
+        after={
+            "message_count": len(messages),
+            "addresses": sorted({addr for addr, _args in messages}),
+        },
+        correlation_id=correlation_id,
+    )
+    return messages
+
+
 def capture_meters_sample(
     osc: OscConnection,
     diagnostics: DiagnosticsLogger,
-    address: str = "/meters/1",
-    subscribe_args: tuple = (0,),
+    meter_path: str = "/meters/1",
+    extra_args: tuple = (),
     listen_sec: float = 3.0,
     correlation_id: str | None = None,
 ) -> list[tuple]:
     """Best-effort capture of whatever the console sends back after a
-    candidate /meters subscribe attempt -- the blob layout is still
-    unconfirmed, so this doesn't try to decode anything; it just records
-    raw reply args (including any blob bytes) for offline analysis. An
-    empty return means this address/subscribe-args combination produced
-    nothing within listen_sec, not necessarily that meters don't work at
-    all on this console -- try other candidates (different address,
-    different subscribe args)."""
+    /meters subscribe attempt. Subscribe form per Maillot's unofficial X32
+    OSC doc: send the *parent* /meters address with the wanted blob path
+    as a string argument (`/meters ,s "/meters/1"`), after which the
+    console streams blob messages on that path for ~10s; some meter paths
+    take extra numeric args after the path (channel id etc.), hence
+    extra_args. This form is from the doc, not yet confirmed against our
+    own hardware -- a first attempt using a plain int subscribe on the
+    blob path itself got zero replies on a real 4.13 console (2026-07-07),
+    which is what prompted switching to the documented form. The blob
+    layout is still unconfirmed either way, so nothing here decodes; raw
+    reply args (including blob bytes) are returned for offline analysis.
+    An empty return means this combination produced nothing within
+    listen_sec, not necessarily that meters don't work on this console."""
     correlation_id = correlation_id or diagnostics.new_correlation_id()
-    osc.send(address, *subscribe_args, correlation_id=correlation_id)
-    messages = osc.listen(address, listen_sec)
+    osc.send("/meters", meter_path, *extra_args, correlation_id=correlation_id)
+    messages = osc.listen(meter_path, listen_sec)
     diagnostics.log_state_change(
         "protocol_discovery_meters_capture",
-        after={"address": address, "subscribe_args": list(subscribe_args), "message_count": len(messages)},
+        after={"meter_path": meter_path, "extra_args": list(extra_args), "message_count": len(messages)},
         correlation_id=correlation_id,
     )
     return messages
