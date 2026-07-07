@@ -32,6 +32,10 @@ class AppConfig:
     # service must not guess a device, per the device-selection requirement.
     midi_input_port: str | None = None
     midi_output_port: str | None = None
+    # If True, selecting a 9th channel raises instead of processing it
+    # without hardware controls. False (default) matches CLAUDE.md:
+    # "channels beyond 8 may still be processed but are app-controlled only."
+    midi_hard_cap_at_8_channels: bool = False
 
     # --- Audio engine ---
     audio_sample_rate: int = 48000
