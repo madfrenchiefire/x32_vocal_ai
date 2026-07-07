@@ -238,11 +238,18 @@ class OscConnection:
         it reads back as expected_value or attempts run out. Some writes
         (confirmed: block-routing changes) take a moment to settle on the
         console before a subsequent read reflects them -- an immediate
-        single query would falsely report those as a failed write. Returns
-        the last value read, whether or not it matched."""
-        value = expected_value
+        single query would falsely report those as a failed write. A
+        TimeoutError (no reply at all) is treated the same as a wrong value
+        -- just another reason to retry -- rather than propagating, since a
+        console that's momentarily slow to reply isn't necessarily a failed
+        write either. Returns the last value read (None if every attempt
+        timed out), whether or not it matched."""
+        value = None
         for attempt in range(attempts):
-            (value,) = self.query(address, correlation_id=correlation_id)
+            try:
+                (value,) = self.query(address, correlation_id=correlation_id)
+            except TimeoutError:
+                value = None
             if value == expected_value:
                 if attempt > 0:
                     self._diagnostics.log_watchdog(

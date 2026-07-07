@@ -33,16 +33,27 @@ class AppConfig:
     midi_input_port: str | None = None
     midi_output_port: str | None = None
 
-    # --- Audio engine (Phase 3+, not yet implemented) ---
+    # --- Audio engine ---
     audio_sample_rate: int = 48000
     audio_block_size: int = 128
     max_notches_per_channel: int = 12
     notch_depth_db: float = -12.0
+    notch_q: float = 10.0
     # Device names as reported by app.audio.devices.list_input_devices() /
     # list_output_devices() (sounddevice). None = not yet chosen -- the
     # audio engine must not assume "the X-USB card" is the only option.
     audio_input_device: str | None = None
     audio_output_device: str | None = None
+
+    # --- Echo cancellation (off by default; needs a reference signal) ---
+    echo_cancellation_enabled: bool = False
+    # Card channels auto-routed from the console's Main L/R bus once enabled
+    # (app.audio.echo_cancellation); None = not yet assigned.
+    echo_reference_card_channels: tuple[int, int] | None = None
+    echo_filter_length_taps: int = 9600  # ~200ms tail at 48kHz; tune per room size
+
+    # --- Routing writes ---
+    routing_write_pace_sec: float = 0.02  # delay between paced OSC writes
 
     # --- Diagnostics ---
     ring_buffer_size: int = 10_000
@@ -83,6 +94,8 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     defaults.update(raw)
     if isinstance(defaults.get("reconnect_backoff_sec"), list):
         defaults["reconnect_backoff_sec"] = tuple(defaults["reconnect_backoff_sec"])
+    if isinstance(defaults.get("echo_reference_card_channels"), list):
+        defaults["echo_reference_card_channels"] = tuple(defaults["echo_reference_card_channels"])
     return AppConfig(**defaults)
 
 

@@ -27,19 +27,30 @@ class ConnectionState:
 
 @dataclass
 class ChannelState:
-    """Placeholder for per-channel runtime state.
-
-    Populated starting in the MIDI/audio phases (slot assignment, AI
-    enabled, active notch count, bypass state). Not written to in this
-    phase -- defined now so the interface is stable for later modules.
-    """
+    """Per-channel runtime state: routing/slot assignment (app.osc.routing_apply),
+    MIDI hardware-control slot (app.midi.slots), and audio detection/filter
+    settings (app.audio). `None` on the *_override fields means "use the
+    matching AppConfig default", not "off"."""
 
     index: int
     card_out_slot: int | None = None
     midi_slot: int | None = None
     ai_enabled: bool = False
-    inserted: bool = True
+    # Whether this channel is currently routed through the app (Card return +
+    # notch processing) vs bypassed back to its original snapshot source, or
+    # never selected at all. False until app.osc.routing_apply.apply_routing
+    # inserts it.
+    inserted: bool = False
     active_notch_count: int = 0
+    echo_cancellation_enabled: bool = False
+
+    # Per-channel overrides of AppConfig's global defaults; None = use the
+    # global default.
+    sensitivity: float = 0.5  # 0-1, heuristic detection threshold
+    max_notches_override: int | None = None
+    notch_depth_db_override: float | None = None
+    notch_q_override: float | None = None
+    mode: str = "live"  # "live" or "ring_out" -- see CLAUDE.md's Web UI modes
 
 
 class AppState:

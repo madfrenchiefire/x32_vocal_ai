@@ -7,8 +7,11 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 ## Core design principles
 
 1. **The AI is never in the audio path.** The real-time audio path is biquad notch
-   filters only (near-zero latency). FFT analysis and ML classification run on a
-   parallel analysis thread that instructs the filter bank asynchronously.
+   filtering plus (if enabled) adaptive echo cancellation — both classical DSP,
+   near-zero latency. FFT analysis and ML classification run on a parallel analysis
+   thread that instructs the filter bank asynchronously; the adaptive filter's own
+   coefficient adaptation (NLMS) is cheap enough to run inline in the callback like
+   the notch filters, not deferred to the analysis thread.
 2. **Snapshot before touching anything.** Every console state the app modifies
    (routing, assign sets, scribble strips/colors) is read and stored first, and is
    restorable — per channel, globally, and automatically on crash (watchdog).
@@ -28,16 +31,58 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   `python -m app.tools.list_devices` prints what's available on the current PC.
 - `sounddevice` (PortAudio), expected to be the Behringer X-USB ASIO driver, 48 kHz,
   64–128 sample buffer. Target total round trip ≤ ~10 ms; measure it (loopback click test).
-- Audio callback does ONLY per-channel biquad notch filtering
-  (`scipy.signal` SOS with persistent state, preallocated buffers, no allocation in callback).
+- Audio callback does per-channel biquad notch filtering plus, if echo cancellation
+  is enabled for that channel, the adaptive echo canceller (`scipy`/numpy, persistent
+  state, preallocated buffers, no allocation in callback).
 - Analysis thread consumes a ring buffer: FFT peak detection heuristics
   (peak-to-average ratio, absence of harmonic structure, sustained growth) flag
-  candidate frequencies; ML classifier confirms/vetoes; filter bank places notches.
-- ML: small CNN on mel-spectrogram patches, "feedback vs musical content."
-  Train in PyTorch, export ONNX, infer with `onnxruntime` on CPU (<1 ms). Fully local.
-- Training data plan: deliberately ring out rooms at low PA level across mics/positions
-  (positives); multitrack vocals/instruments incl. sustained notes, whistles, cymbal
-  swells (negatives / false-positive hard cases).
+  candidate frequencies; ML classifier confirms/vetoes (Phase 4, not yet built —
+  heuristics alone place notches for now); filter bank places notches.
+- ML (Phase 4, later): small CNN on mel-spectrogram patches, "feedback vs musical
+  content." Train in PyTorch, export ONNX, infer with `onnxruntime` on CPU (<1 ms).
+  Fully local. Needs real ring-out recordings as training data before it can be
+  built for real — not something to stub out ahead of having that data.
+- Training data plan (when Phase 4 starts): deliberately ring out rooms at low PA
+  level across mics/positions (positives); multitrack vocals/instruments incl.
+  sustained notes, whistles, cymbal swells (negatives / false-positive hard cases).
+
+### 1b. Echo cancellation (acoustic echo, not feedback)
+- **Different problem from feedback.** Feedback is a mic hearing its own reinforced
+  output build into a runaway tone (handled by the notch filter bank above). Echo is
+  a mic picking up a *delayed, decayed* copy of the PA signal (e.g. off a back wall in
+  a large room) — the fix is an adaptive filter that predicts and subtracts that copy,
+  not a notch.
+- **User-configurable, off by default.** `AppConfig.echo_cancellation_enabled: bool`.
+  Only meaningful once a reference signal (what's actually being sent to the PA) is
+  available — without one there's nothing to correlate the mic signal against.
+- **Reference signal: auto-routed from the console, not manually patched.** When
+  enabled, the app uses the same OSC routing-write path as `apply_routing` to route
+  the X32's Main L/R bus into two otherwise-unused Card channels
+  (`AppConfig.echo_reference_card_channels: tuple[int, int] | None`, auto-picked from
+  whichever Card channels aren't already claimed by a provisioned mic channel), then
+  reads those two Card channels back into the app as the reference signal.
+  **Open item: the raw `userrout/out` value for "Main L/R" as a source is not yet
+  confirmed** — everything confirmed so far (`app/osc/addresses.py`
+  `USERROUT_SOURCE_RANGES`) only covers Local Analog/AES50-A/AES50-B/Card as physical
+  sources, not console mix-bus signals. Confirm empirically the same way every other
+  value in this project was confirmed: on the console, route Main L/R to a User Out
+  slot, then read `/config/userrout/out/NN` back and note the raw value (or use
+  `python -m app.tools.test_write_routing` to try candidates and check the routing
+  matrix). `app/audio/echo_cancellation.py`'s auto-routing function takes this value
+  as a named constant, clearly marked TODO-VERIFY, so it's a one-line fix once known.
+- **Algorithm: NLMS (normalized least-mean-squares) adaptive FIR filter**, one per
+  channel with echo cancellation enabled, filter length sized to the room's expected
+  reflection tail (start around 200 ms at 48 kHz = ~9600 taps; tune once real rooms
+  are tested — larger rooms need a longer tail). Runs in the audio callback: predict
+  the echo component from the reference signal history, subtract it from the mic
+  signal, then feed the *residual* into the same notch filter bank as before. Adapts
+  continuously; needs basic double-talk detection (skip/slow adaptation when the mic
+  signal has significant energy uncorrelated with the reference, e.g. someone talking
+  over playback) so it doesn't diverge — simple energy-ratio heuristic to start, not
+  ML.
+- **Not a substitute for gain-before-feedback discipline** — this only removes the
+  correlated echo path; it doesn't change acoustic gain structure or genuine feedback
+  loops, which the notch filter bank still handles independently.
 
 ### 2. OSC service (console control, UDP 10023)
 - `python-osc`. Send `/xremote` and refresh every ~8 s to receive state changes.
@@ -138,7 +183,8 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   depth (−6 to −18 dB), Q/width, deploy speed.
 - Modes: **Ring-out/setup** (aggressive, locks filters) vs **Live** (conservative,
   floating filters in reserve, slow release of unused notches).
-- Global: bypass, ML confidence threshold slider (trust model vs pure heuristics),
+- Global: bypass, echo cancellation on/off + reference-channel status, ML confidence
+  threshold slider (trust model vs pure heuristics — inert until Phase 4 ML exists),
   spectrum display per channel, event log (every notch: channel, frequency, time).
 
 ## Build phases
@@ -147,13 +193,26 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
    per-channel bypass, Set A/B provisioning, MIDI listener, scribble-strip feedback.
    (Testable with console only, no audio engine.)
 3. **Heuristic detection + notch filter bank** — usable product on its own.
-4. **ML classifier** layered on top of heuristics.
-5. Watchdog, event log, polish.
+4. **Echo cancellation** (auto-routed reference + NLMS canceller), layered alongside
+   the notch filter bank.
+5. **ML classifier** layered on top of heuristics — needs real ring-out recordings
+   first; not built until that data exists.
+6. Watchdog, event log, polish.
 
 ## Open items to verify (do not assume)
 - MIDI-assignment string format for `/config/ctrl/*` — Maillot doc or empirical.
 - `/meters` blob layout for the meters we need.
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
+- **Raw `userrout/out` value for "Main L/R" as an echo-cancellation reference
+  source.** Every confirmed `userrout` value so far (`app/osc/addresses.py`
+  `USERROUT_SOURCE_RANGES`) is a physical source (Local Analog/AES50-A/AES50-B/
+  Card) — none of the empirical tests so far routed a console mix bus (Main L/R,
+  a Bus, a Matrix) as a `userrout` source, so there's no confirmed value for that
+  yet. `app/audio/echo_cancellation.py`'s auto-routing constant is a clearly
+  marked placeholder pending this. Confirm the same way as everything else in
+  this project: route Main L/R to a User Out slot on the console, read back
+  `/config/userrout/out/NN`, note the raw value (or sweep candidates with
+  `python -m app.tools.test_write_routing`).
 - **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
   from two sources: (1) a real console scene (`.scn`) file dump, and (2)
   Patrick-Gilles Maillot's own reverse-engineered parameter table and enum

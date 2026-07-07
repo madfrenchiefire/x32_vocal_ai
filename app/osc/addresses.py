@@ -299,6 +299,41 @@ def user_in_block_value(channel: int) -> int:
     return USER_IN_BASE_VALUE + (channel - 1) // 8
 
 
+def equivalent_userrout_in_value(rtgin_block_value: int, channel: int) -> int | None:
+    """For a channel whose containing block currently has a *physical*
+    source (i.e. rtgin_block_value is one of the 20 named entries, not
+    already a User In bank), return the userrout/in value that replicates
+    that exact same physical source for this one channel.
+
+    This is what makes flipping a block to User In safe for the *other*
+    channels sharing it: e.g. if block 9-16 is on "AN9-16" (Local Analog
+    9-16, a straight 1:1 mapping), channel 9 is physically getting Local
+    Analog In 9 -- so before flipping that block to User In, channel 9's
+    own userrout/in must be set to 9 (Local Analog 9, per
+    decode_userrout_value's confirmed ranges) or it would go silent once
+    the block stops using its physical source directly.
+
+    Returns None if rtgin_block_value is already a User In value (nothing
+    to replicate -- the channel's existing userrout/in is presumably
+    already meaningful) or out of the known 0-19 physical range.
+    """
+    if not 0 <= rtgin_block_value <= 19:
+        return None
+    block_start = ((channel - 1) // 8) * 8 + 1
+    offset = channel - block_start  # 0-7
+
+    if 0 <= rtgin_block_value <= 3:  # Local Analog: AN1-8, AN9-16, AN17-24, AN25-32
+        source_base = 1 + rtgin_block_value * 8
+    elif 4 <= rtgin_block_value <= 9:  # AES50-A: A1-8 .. A41-48
+        source_base = 33 + (rtgin_block_value - 4) * 8
+    elif 10 <= rtgin_block_value <= 15:  # AES50-B: B1-8 .. B41-48
+        source_base = 81 + (rtgin_block_value - 10) * 8
+    else:  # 16-19: Card: CARD1-8 .. CARD25-32
+        source_base = 129 + (rtgin_block_value - 16) * 8
+
+    return source_base + offset
+
+
 def decode_routing_value(table: str, value: int | None) -> str | None:
     """Decode a raw enum int into its display token, e.g.
     ``decode_routing_value("rtaea", 16) == "CARD1-8"``. Returns None if
