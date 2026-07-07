@@ -211,13 +211,13 @@ ROUTING_PLAY = "/config/routing/PLAY"
 #     construction (it's the other half of the same 4-wide OUT blocks) but
 #     hasn't been independently written to; treat its bank entries as
 #     inferred, not confirmed, until tested directly the same way.
-#   - rtina (IN/AUX, PLAY/AUX): not yet tested at all -- neither the
-#     address nor a "User" value has been tried. By the same input-vs-
-#     output reasoning it's more likely User In, but that's a guess by
-#     analogy, not a confirmed value -- test the same way (write a
-#     candidate value with app.tools.test_write_routing, check which
-#     column lights up on the matching routing matrix tab) before trusting
-#     it.
+#   - rtina (IN/AUX, PLAY/AUX): confirmed 2026-07-06 -- /config/routing/IN/AUX
+#     set to 13 (one past rtina's 13 named sources) matched "User In 1-2"
+#     both by readback and by the console's own "Aux In Remap" dropdown,
+#     which lists the full enum in order: the 13 named entries, then "User
+#     In 1-2"/"1-4"/"1-6" (indices 13/14/15) -- User In as guessed by
+#     direction, but banked in 2/4/6-channel groups (matching AUX's own
+#     6-channel width) rather than the 8-wide banks used elsewhere.
 #
 # IMPORTANT for routing writes: which User bank a block pulls from must
 # match the per-channel userrout slot you actually configured, or the
@@ -255,7 +255,9 @@ ROUTING_ENUM_TABLES: dict[str, list[str]] = {
     "rtina": [
         "AUX1-4", "AN1-2", "AN1-4", "AN1-6", "A1-2", "A1-4", "A1-6",
         "B1-2", "B1-4", "B1-6", "CARD1-2", "CARD1-4", "CARD1-6",
-        "USERIN",  # guessed direction by analogy (rtina is on IN/PLAY's AUX blocks) -- untested, not even address-confirmed
+        "USERIN1-2",  # confirmed: index 13 (write + the console's own "Aux In Remap" dropdown listing)
+        "USERIN1-4",  # confirmed: index 14 (seen in the same dropdown listing, in order)
+        "USERIN1-6",  # confirmed: index 15 (seen in the same dropdown listing, in order)
     ],
     "rout1": [
         "AN1-4", "AN9-12", "AN17-20", "AN25-28", "A1-4", "A9-12", "A17-20", "A25-28",

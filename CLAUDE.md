@@ -225,6 +225,16 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   <routing address> --value <candidate>` to test any of these without
   writing new code per block type, then check the console's routing matrix
   screen (the tab matching the address) for which column lit up.
+- **`rtina` fully confirmed (2026-07-06), including its own oddball
+  banking.** `/config/routing/IN/AUX` set to `13` (one past `rtina`'s 13
+  named sources) matched "User In 1-2" — confirmed twice over: by readback
+  *and* by the console's own "Aux In Remap" dropdown, which lists the
+  complete enum in order (the 13 named entries, then "User In
+  1-2"/"1-4"/"1-6" at indices 13/14/15). Direction was User In as guessed,
+  but the banking is 2/4/6-channel groups (matching AUX's own 6-channel
+  width), not the 8-wide banks used everywhere else — a reminder that
+  "banked like every other source type" doesn't hold universally, only
+  where the consuming block's own width is a multiple of 8.
 - **`userrout/in`/`userrout/out` value semantics — confirmed for all four
   source families (2026-07-06, real hardware, firmware 4.13).** A channel
   assigned to Local Analog In 1 read back `1`; AES50-A In 2 read back `34`;

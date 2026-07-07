@@ -45,6 +45,19 @@ def test_decode_routing_value_user_out_confirmed_on_rout1():
     assert addresses.decode_routing_value("rout1", 26) == "USEROUT1-8"
 
 
+def test_decode_routing_value_user_in_confirmed_on_rtina():
+    # Confirmed 2026-07-06 against real hardware: /config/routing/IN/AUX
+    # set to 13 (one past rtina's 13 named sources) matched "User In 1-2"
+    # both by readback and by the console's own "Aux In Remap" dropdown,
+    # which lists the full enum in order -- User In as guessed by
+    # direction, but banked in 2/4/6-channel groups (AUX's own width)
+    # rather than the 8-wide banks used elsewhere. All three sub-banks are
+    # confirmed via the dropdown's own listed order, not just index 13.
+    assert addresses.decode_routing_value("rtina", 13) == "USERIN1-2"
+    assert addresses.decode_routing_value("rtina", 14) == "USERIN1-4"
+    assert addresses.decode_routing_value("rtina", 15) == "USERIN1-6"
+
+
 def test_user_in_block_value_matches_channel_position():
     # Each channel's containing 8-channel block must pull from the User In
     # bank matching that channel's own position, or the console uses a
