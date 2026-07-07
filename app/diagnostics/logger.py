@@ -34,6 +34,7 @@ class DiagnosticsLogger:
         self._ring: deque[Event] = deque(maxlen=ring_buffer_size)
         self._seq = 0
         self._state_provider = state_provider
+        self._listeners: list[Callable[[Event], None]] = []
 
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -45,6 +46,16 @@ class DiagnosticsLogger:
     @staticmethod
     def new_correlation_id() -> str:
         return uuid.uuid4().hex
+
+    # -- live listeners (e.g. app.web.sockets broadcasting to clients) -----
+    def add_listener(self, callback: Callable[[Event], None]) -> None:
+        with self._lock:
+            self._listeners.append(callback)
+
+    def remove_listener(self, callback: Callable[[Event], None]) -> None:
+        with self._lock:
+            if callback in self._listeners:
+                self._listeners.remove(callback)
 
     # -- core log path -------------------------------------------------
     def log(
@@ -59,7 +70,13 @@ class DiagnosticsLogger:
             self._ring.append(event)
             self._fh.write(json.dumps(event.to_dict(), default=str) + "\n")
             self._fh.flush()
-            return event
+            listeners = list(self._listeners)
+
+        # Called outside the lock -- a listener that itself logs (e.g. a
+        # broadcast failure) must not deadlock against this same lock.
+        for listener in listeners:
+            listener(event)
+        return event
 
     # -- category convenience wrappers -------------------------------
     def log_osc_tx(self, address: str, args: tuple, correlation_id: str | None = None) -> Event:

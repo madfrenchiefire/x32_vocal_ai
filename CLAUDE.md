@@ -170,22 +170,43 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   the fader surface). System arm/disarm lives in the web UI only. Do not revisit.
 
 ## Web UI (Flask + WebSockets)
-- **Device setup panel**: dropdowns for audio input device, audio output device,
+- **Device setup panel** (implemented, `app/web/routes.py` `/api/devices` +
+  `/api/devices/select`): dropdowns for audio input device, audio output device,
   MIDI input port, MIDI output port (list from `app/audio/devices.py` and
   `app/midi/devices.py`), a "rescan devices" button, and a persisted selection
-  (`AppConfig`). Shown before/alongside the routing panel — the rest of the app
-  depends on these being chosen. Not yet implemented (Web UI beyond the
-  diagnostics export endpoint is a later phase).
-- Routing panel: 32-channel selection grid (pull real channel names/colors via OSC),
-  snapshot status, Save snapshot / Apply routing / Restore buttons, per-channel rows
-  showing card-out slot, active notch count, AI toggle, assigned hardware controls.
-- Per channel: detection sensitivity, max simultaneous notches (default 12), notch
-  depth (−6 to −18 dB), Q/width, deploy speed.
-- Modes: **Ring-out/setup** (aggressive, locks filters) vs **Live** (conservative,
-  floating filters in reserve, slow release of unused notches).
-- Global: bypass, echo cancellation on/off + reference-channel status, ML confidence
-  threshold slider (trust model vs pure heuristics — inert until Phase 4 ML exists),
-  spectrum display per channel, event log (every notch: channel, frequency, time).
+  (`AppConfig`, written via `save_config` if the app was started with a config
+  path — a bare `create_app()` call with no path updates the in-memory config
+  only, so tests/ad-hoc runs never write a stray `config.json`).
+- **Routing panel** (implemented, `/api/routing/*` + `/api/channels/*`):
+  32-channel grid with a per-channel select checkbox, Save Snapshot / Apply
+  Routing / Restore / Bypass All / Re-insert All buttons, per-channel rows
+  showing card-out slot, active notch count, AI toggle, MIDI slot, mode,
+  sensitivity, and a bypass/insert button. Channel *names/colors* pulled live
+  from the console via scribble-strip reads are not wired into this grid yet
+  (`app/osc/scribble_strip.py` exists and is used for writes, just not surfaced
+  in `/api/channels` reads) — rows currently show channel number only.
+- **Per channel** (implemented via `/api/channels/<n>/settings`): detection
+  sensitivity, max simultaneous notches (default 12), notch depth (−6 to
+  −18 dB), Q/width all persist to `ChannelState` and, if a live `NotchFilterBank`
+  is wired into the running `AudioEngine`, take effect immediately. "Deploy
+  speed" from the original spec has no concrete field yet — not implemented.
+- **Modes**: **Ring-out/setup** vs **Live** are a per-channel `ChannelState.mode`
+  field, selectable in the routing grid and persisted — but the *behavioral*
+  difference CLAUDE.md describes (ring-out aggressive/locks filters; live
+  conservative/floating filters in reserve, slow release of unused notches) is
+  not read anywhere in `app.audio.detection`/`app.audio.engine` yet. The field
+  exists; the detector doesn't branch on it. Flagged rather than silently
+  assumed built.
+- **Global** (implemented): bypass all / re-insert all
+  (`/api/routing/bypass_all`), echo cancellation on/off + reference-channel
+  status (`/api/echo_cancellation/toggle`, auto-routes via
+  `app.audio.echo_cancellation.auto_route_reference_signal` the first time it's
+  enabled), event log (every diagnostics event, including `notch_placed`'s
+  channel/frequency/time, pushed live over WebSocket as it's logged via
+  `DiagnosticsLogger.add_listener` — not polled). **Not implemented**: the ML
+  confidence threshold slider (inert regardless, since Phase 5's ML classifier
+  doesn't exist) and the per-channel spectrum display (blocked on the
+  unconfirmed `/meters` blob layout below).
 
 ## Build phases
 1. **Plumbing**: ASIO passthrough Card 1–4 → app → Card 1–4, latency measurement.

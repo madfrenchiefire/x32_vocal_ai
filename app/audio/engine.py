@@ -35,6 +35,7 @@ from app.audio.echo_cancellation import EchoCanceller
 from app.audio.filters import NotchFilterBank
 from app.config import AppConfig
 from app.diagnostics.logger import DiagnosticsLogger
+from app.state import AppState
 
 ANALYSIS_QUEUE_SIZE = 64
 ANALYSIS_POLL_TIMEOUT_SEC = 0.5
@@ -52,12 +53,19 @@ class AudioEngine:
         filter_banks: dict[int, NotchFilterBank] | None = None,
         detector: FeedbackDetector | None = None,
         echo_cancellers: dict[int, EchoCanceller] | None = None,
+        state: AppState | None = None,
     ) -> None:
         self.config = config
         self.diagnostics = diagnostics
         self.filter_banks = filter_banks if filter_banks is not None else {}
         self.detector = detector or FeedbackDetector(sample_rate=config.audio_sample_rate)
         self.echo_cancellers = echo_cancellers if echo_cancellers is not None else {}
+        # Gates notch placement by ChannelState.ai_enabled (the MIDI/web
+        # "AI on/off" toggle) when provided. None (the default, used by
+        # standalone/unit-test callers with no AppState wired up) means
+        # "no gating" -- always analyze, matching this class's behavior
+        # before the toggle existed.
+        self.state = state
 
         self._stream = None
         self._analysis_queue: queue.Queue = queue.Queue(maxsize=ANALYSIS_QUEUE_SIZE)
@@ -162,6 +170,8 @@ class AudioEngine:
             channel_number = channel_index + 1
             bank = self.filter_banks.get(channel_number)
             if bank is None:
+                continue
+            if self.state is not None and not self.state.channels[channel_number].ai_enabled:
                 continue
             for candidate in self.detector.analyze(block[:, channel_index]):
                 if len(bank.active_notches()) >= bank.max_notches:

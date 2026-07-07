@@ -3,31 +3,352 @@
 <head>
   <meta charset="utf-8">
   <title>X32 AI Feedback Suppression</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
-    button { font-size: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
-    #status { margin-top: 1rem; color: #444; }
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; background: #fafafa; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.25rem; }
+    section { margin-bottom: 1.5rem; }
+    button { font-size: 0.95rem; padding: 0.4rem 0.9rem; cursor: pointer; margin-right: 0.5rem; }
+    select, input { font-size: 0.9rem; padding: 0.2rem; }
+    label { display: inline-block; min-width: 9rem; }
+    .row { margin-bottom: 0.5rem; }
+    .status { margin-top: 0.5rem; color: #444; font-size: 0.9rem; }
+    .status.error { color: #b00020; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    th, td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: left; }
+    th { background: #eee; }
+    tr.inserted { background: #eaffea; }
+    tr.bypassed { background: #fff8ea; }
+    #event-log { max-height: 220px; overflow-y: auto; background: #111; color: #ddd; font-family: monospace;
+      font-size: 0.75rem; padding: 0.5rem; }
+    #event-log div { white-space: pre-wrap; word-break: break-all; }
+    .channel-select { width: 2.5rem; }
   </style>
 </head>
 <body>
   <h1>X32 AI Feedback Suppression</h1>
-  <p>
-    The routing / channel / control panels described in the project spec are
-    not implemented yet. This page currently only exposes diagnostics.
-  </p>
 
-  <button id="export-btn">Export Debug Bundle</button>
-  <div id="status"></div>
+  <section id="device-setup">
+    <h2>Device Setup</h2>
+    <div class="row">
+      <label for="audio-input">Audio input</label>
+      <select id="audio-input"></select>
+    </div>
+    <div class="row">
+      <label for="audio-output">Audio output</label>
+      <select id="audio-output"></select>
+    </div>
+    <div class="row">
+      <label for="midi-input">MIDI input</label>
+      <select id="midi-input"></select>
+    </div>
+    <div class="row">
+      <label for="midi-output">MIDI output</label>
+      <select id="midi-output"></select>
+    </div>
+    <button id="rescan-devices-btn">Rescan Devices</button>
+    <button id="save-devices-btn">Save Devices</button>
+    <div id="device-status" class="status"></div>
+  </section>
+
+  <section id="routing-panel">
+    <h2>Routing</h2>
+    <button id="snapshot-btn">Save Snapshot</button>
+    <button id="apply-btn">Apply Routing</button>
+    <button id="restore-btn">Restore Snapshot</button>
+    <button id="bypass-all-btn">Bypass All</button>
+    <button id="reinsert-all-btn">Re-insert All</button>
+    <div id="routing-status" class="status"></div>
+    <table id="channel-table">
+      <thead>
+        <tr>
+          <th></th><th>Ch</th><th>Card Slot</th><th>MIDI Slot</th><th>Notches</th>
+          <th>AI</th><th>Mode</th><th>Sensitivity</th><th>Bypass</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="global-controls">
+    <h2>Global</h2>
+    <div class="row">
+      <label for="echo-toggle">Echo cancellation</label>
+      <input type="checkbox" id="echo-toggle">
+      <span id="echo-status" class="status" style="display:inline"></span>
+    </div>
+  </section>
+
+  <section id="diagnostics">
+    <h2>Diagnostics</h2>
+    <button id="export-btn">Export Debug Bundle</button>
+    <div id="export-status" class="status"></div>
+    <h3 style="font-size:0.95rem;">Event log</h3>
+    <div id="event-log"></div>
+  </section>
 
   <script>
-    document.getElementById("export-btn").addEventListener("click", async () => {
-      const statusEl = document.getElementById("status");
-      statusEl.textContent = "Building debug bundle...";
+    const el = (id) => document.getElementById(id);
+
+    function setStatus(id, text, isError = false) {
+      const node = el(id);
+      node.textContent = text;
+      node.classList.toggle("error", isError);
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.error || `Server returned ${response.status}`);
+      }
+      return body;
+    }
+
+    function populateSelect(select, items, selectedName) {
+      select.innerHTML = "";
+      const noneOption = document.createElement("option");
+      noneOption.value = "";
+      noneOption.textContent = "-- none --";
+      select.appendChild(noneOption);
+      for (const item of items) {
+        const option = document.createElement("option");
+        const name = typeof item === "string" ? item : item.name;
+        option.value = name;
+        option.textContent = name;
+        if (name === selectedName) option.selected = true;
+        select.appendChild(option);
+      }
+    }
+
+    async function loadDevices() {
+      try {
+        const data = await api("/api/devices");
+        populateSelect(el("audio-input"), data.audio_inputs, data.selected.audio_input_device);
+        populateSelect(el("audio-output"), data.audio_outputs, data.selected.audio_output_device);
+        populateSelect(el("midi-input"), data.midi_inputs, data.selected.midi_input_port);
+        populateSelect(el("midi-output"), data.midi_outputs, data.selected.midi_output_port);
+        const errors = [data.audio_error, data.midi_error].filter(Boolean);
+        setStatus("device-status", errors.length ? errors.join("; ") : "Devices loaded.", errors.length > 0);
+      } catch (err) {
+        setStatus("device-status", `Failed to load devices: ${err}`, true);
+      }
+    }
+
+    el("rescan-devices-btn").addEventListener("click", loadDevices);
+
+    el("save-devices-btn").addEventListener("click", async () => {
+      try {
+        await api("/api/devices/select", {
+          method: "POST",
+          body: JSON.stringify({
+            audio_input_device: el("audio-input").value || null,
+            audio_output_device: el("audio-output").value || null,
+            midi_input_port: el("midi-input").value || null,
+            midi_output_port: el("midi-output").value || null,
+          }),
+        });
+        setStatus("device-status", "Saved.");
+      } catch (err) {
+        setStatus("device-status", `Save failed: ${err}`, true);
+      }
+    });
+
+    function channelRow(channel) {
+      const tr = document.createElement("tr");
+      tr.dataset.channel = channel.index;
+      tr.className = channel.inserted ? "inserted" : "bypassed";
+
+      const select = document.createElement("td");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "channel-select";
+      select.appendChild(checkbox);
+      tr.appendChild(select);
+
+      const cell = (text) => { const td = document.createElement("td"); td.textContent = text; return td; };
+      tr.appendChild(cell(channel.index));
+      tr.appendChild(cell(channel.card_out_slot ?? "-"));
+      tr.appendChild(cell(channel.midi_slot ?? "-"));
+      tr.appendChild(cell(channel.active_notch_count));
+
+      const aiCell = document.createElement("td");
+      const aiCheckbox = document.createElement("input");
+      aiCheckbox.type = "checkbox";
+      aiCheckbox.checked = channel.ai_enabled;
+      aiCheckbox.addEventListener("change", async () => {
+        try {
+          await api(`/api/channels/${channel.index}/ai_toggle`, {
+            method: "POST",
+            body: JSON.stringify({ enabled: aiCheckbox.checked }),
+          });
+        } catch (err) {
+          setStatus("routing-status", `AI toggle failed: ${err}`, true);
+          aiCheckbox.checked = !aiCheckbox.checked;
+        }
+      });
+      aiCell.appendChild(aiCheckbox);
+      tr.appendChild(aiCell);
+
+      const modeCell = document.createElement("td");
+      const modeSelect = document.createElement("select");
+      for (const mode of ["live", "ring_out"]) {
+        const option = document.createElement("option");
+        option.value = mode;
+        option.textContent = mode;
+        if (mode === channel.mode) option.selected = true;
+        modeSelect.appendChild(option);
+      }
+      modeSelect.addEventListener("change", async () => {
+        try {
+          await api(`/api/channels/${channel.index}/settings`, {
+            method: "POST",
+            body: JSON.stringify({ mode: modeSelect.value }),
+          });
+        } catch (err) {
+          setStatus("routing-status", `Mode update failed: ${err}`, true);
+        }
+      });
+      modeCell.appendChild(modeSelect);
+      tr.appendChild(modeCell);
+
+      const sensitivityCell = document.createElement("td");
+      const sensitivityInput = document.createElement("input");
+      sensitivityInput.type = "number";
+      sensitivityInput.min = "0";
+      sensitivityInput.max = "1";
+      sensitivityInput.step = "0.05";
+      sensitivityInput.style.width = "4rem";
+      sensitivityInput.value = channel.sensitivity;
+      sensitivityInput.addEventListener("change", async () => {
+        try {
+          await api(`/api/channels/${channel.index}/settings`, {
+            method: "POST",
+            body: JSON.stringify({ sensitivity: parseFloat(sensitivityInput.value) }),
+          });
+        } catch (err) {
+          setStatus("routing-status", `Sensitivity update failed: ${err}`, true);
+        }
+      });
+      sensitivityCell.appendChild(sensitivityInput);
+      tr.appendChild(sensitivityCell);
+
+      const bypassCell = document.createElement("td");
+      const bypassBtn = document.createElement("button");
+      bypassBtn.textContent = channel.inserted ? "Bypass" : "Insert";
+      bypassBtn.disabled = channel.card_out_slot === null;
+      bypassBtn.addEventListener("click", async () => {
+        try {
+          await api(`/api/channels/${channel.index}/bypass`, { method: "POST" });
+          await loadChannels();
+        } catch (err) {
+          setStatus("routing-status", `Bypass failed: ${err}`, true);
+        }
+      });
+      bypassCell.appendChild(bypassBtn);
+      tr.appendChild(bypassCell);
+
+      return tr;
+    }
+
+    async function loadChannels() {
+      try {
+        const data = await api("/api/channels");
+        const tbody = document.querySelector("#channel-table tbody");
+        tbody.innerHTML = "";
+        for (const channel of data.channels) {
+          tbody.appendChild(channelRow(channel));
+        }
+      } catch (err) {
+        setStatus("routing-status", `Failed to load channels: ${err}`, true);
+      }
+    }
+
+    function selectedChannels() {
+      return Array.from(document.querySelectorAll(".channel-select:checked"))
+        .map((cb) => parseInt(cb.closest("tr").dataset.channel, 10));
+    }
+
+    el("snapshot-btn").addEventListener("click", async () => {
+      try {
+        const data = await api("/api/routing/snapshot", { method: "POST" });
+        setStatus("routing-status", `Snapshot saved: ${data.name}`);
+      } catch (err) {
+        setStatus("routing-status", `Snapshot failed: ${err}`, true);
+      }
+    });
+
+    el("apply-btn").addEventListener("click", async () => {
+      const channels = selectedChannels();
+      if (!channels.length) {
+        setStatus("routing-status", "Select at least one channel first.", true);
+        return;
+      }
+      try {
+        await api("/api/routing/apply", { method: "POST", body: JSON.stringify({ channels }) });
+        setStatus("routing-status", `Applied routing for channels: ${channels.join(", ")}`);
+        await loadChannels();
+      } catch (err) {
+        setStatus("routing-status", `Apply failed: ${err}`, true);
+      }
+    });
+
+    el("restore-btn").addEventListener("click", async () => {
+      try {
+        const data = await api("/api/routing/restore", { method: "POST" });
+        setStatus("routing-status", data.mismatches.length
+          ? `Restored with ${data.mismatches.length} mismatch(es) -- see event log`
+          : "Restored.");
+        await loadChannels();
+      } catch (err) {
+        setStatus("routing-status", `Restore failed: ${err}`, true);
+      }
+    });
+
+    el("bypass-all-btn").addEventListener("click", async () => {
+      try {
+        await api("/api/routing/bypass_all", { method: "POST", body: JSON.stringify({ bypass: true }) });
+        await loadChannels();
+      } catch (err) {
+        setStatus("routing-status", `Bypass all failed: ${err}`, true);
+      }
+    });
+
+    el("reinsert-all-btn").addEventListener("click", async () => {
+      try {
+        await api("/api/routing/bypass_all", { method: "POST", body: JSON.stringify({ bypass: false }) });
+        await loadChannels();
+      } catch (err) {
+        setStatus("routing-status", `Re-insert all failed: ${err}`, true);
+      }
+    });
+
+    el("echo-toggle").addEventListener("change", async () => {
+      const enabled = el("echo-toggle").checked;
+      try {
+        const data = await api("/api/echo_cancellation/toggle", {
+          method: "POST",
+          body: JSON.stringify({ enabled }),
+        });
+        setStatus("echo-status", data.reference_card_channels && data.reference_card_channels.length
+          ? `Reference: Card ${data.reference_card_channels.join(", ")}`
+          : (enabled ? "Enabled." : "Disabled."));
+      } catch (err) {
+        setStatus("echo-status", `Failed: ${err}`, true);
+        el("echo-toggle").checked = !enabled;
+      }
+    });
+
+    el("export-btn").addEventListener("click", async () => {
+      setStatus("export-status", "Building debug bundle...");
       try {
         const response = await fetch("/api/diagnostics/export", { method: "POST" });
-        if (!response.ok) {
-          throw new Error(`Server returned ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`Server returned ${response.status}`);
         const blob = await response.blob();
         const disposition = response.headers.get("Content-Disposition") || "";
         const match = disposition.match(/filename="?([^"]+)"?/);
@@ -41,11 +362,43 @@
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        statusEl.textContent = `Downloaded ${filename}`;
+        setStatus("export-status", `Downloaded ${filename}`);
       } catch (err) {
-        statusEl.textContent = `Export failed: ${err}`;
+        setStatus("export-status", `Export failed: ${err}`, true);
       }
     });
+
+    function appendEvent(event) {
+      const log = el("event-log");
+      const line = document.createElement("div");
+      line.textContent = `[${event.timestamp}] ${event.category} :: ${JSON.stringify(event.payload)}`;
+      log.appendChild(line);
+      while (log.children.length > 200) log.removeChild(log.firstChild);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function loadRecentEvents() {
+      try {
+        const data = await api("/api/events?limit=100");
+        for (const event of data.events) appendEvent(event);
+      } catch (err) {
+        // Non-fatal -- live events still arrive over the socket below.
+      }
+    }
+
+    if (typeof io !== "undefined") {
+      const socket = io();
+      socket.on("diagnostics_event", (event) => {
+        appendEvent(event);
+        if (event.category === "state_change" || event.category === "watchdog") {
+          loadChannels();
+        }
+      });
+    }
+
+    loadDevices();
+    loadChannels();
+    loadRecentEvents();
   </script>
 </body>
 </html>

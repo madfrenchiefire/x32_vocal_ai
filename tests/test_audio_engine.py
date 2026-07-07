@@ -11,6 +11,7 @@ from app.audio.engine import AudioEngine, AudioEngineError
 from app.audio.filters import NotchFilterBank
 from app.audio.ml.classifier import FeedbackClassifier
 from app.config import AppConfig
+from app.state import AppState
 
 
 def test_feedback_classifier_is_not_yet_implemented():
@@ -143,3 +144,46 @@ def test_measure_round_trip_latency_requires_physical_hardware(diagnostics):
     engine = _make_engine(diagnostics)
     with pytest.raises(NotImplementedError):
         engine.measure_round_trip_latency()
+
+
+def test_analyze_block_skips_channel_with_ai_disabled(diagnostics):
+    engine = _make_engine(diagnostics)
+    state = AppState()
+    state.channels[1].ai_enabled = False
+    engine.state = state
+
+    candidate = FeedbackCandidate(
+        frequency_hz=1000.0,
+        peak_to_average_db=20.0,
+        harmonic_structure_present=False,
+        sustained_growth=True,
+    )
+    engine.detector.analyze.return_value = [candidate]
+
+    block = np.zeros((64, 2), dtype=np.float32)
+    engine._analyze_block(block)
+
+    assert engine.filter_banks[1].active_notches() == []
+    engine.detector.analyze.assert_not_called()
+
+
+def test_analyze_block_processes_channel_with_ai_enabled(diagnostics):
+    engine = _make_engine(diagnostics)
+    state = AppState()
+    state.channels[1].ai_enabled = True
+    engine.state = state
+
+    candidate = FeedbackCandidate(
+        frequency_hz=1000.0,
+        peak_to_average_db=20.0,
+        harmonic_structure_present=False,
+        sustained_growth=True,
+    )
+    engine.detector.analyze.return_value = [candidate]
+
+    block = np.zeros((64, 2), dtype=np.float32)
+    engine._analyze_block(block)
+
+    active = engine.filter_banks[1].active_notches()
+    assert len(active) == 1
+    assert active[0]["frequency_hz"] == 1000.0
