@@ -1,3 +1,4 @@
+from app.osc.assign_set import AssignSetError
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.routing_apply import RoutingApplyError, apply_routing, bypass_channel, restore_snapshot
 from app.osc.routing_snapshot import RoutingSnapshot, read_routing_snapshot, save_snapshot
@@ -13,4 +14,5 @@ __all__ = [
     "apply_routing",
     "bypass_channel",
     "restore_snapshot",
+    "AssignSetError",
 ]
