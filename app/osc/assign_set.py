@@ -6,22 +6,25 @@ sniffer (`app.osc.protocol_discovery.sniff_pushed_changes`): changing Set A
 encoder assignments on a live console pushed `/config/userctrl/A/enc/1`..
 `/enc/3` with string values (`'X000'`, `'S0000'`, `'MC01000'`, `'MC03000'`,
 ...). The originally guessed `/config/ctrl/...` shape got no reply on the
-same console and is wrong. Buttons observed to follow the same
-`/config/userctrl/<set>/btn/<N>` shape but with N running 5-12 (continuing
-past the 4 encoders) per Maillot's parameter tree -- that numbering is
-inferred, not yet sniffed on real hardware; the next passive
-`diagnose_console` capture confirms or refutes it for free (wrong
-addresses just read back None, which every caller here already tolerates).
+same console and is wrong. **Button numbering confirmed by a second sniff
+the same day**: changing Set A button assignments pushed
+`/config/userctrl/A/btn/5` and `/btn/6` -- buttons continue the numbering
+past the 4 encoders (btn/5-12; 5 and 6 observed directly, 7-12 by that
+now-verified pattern).
 
 **The assignment value *string format* is partially observed, not
-decoded**: `'MC01000'`/`'MC03000'`/`'MC04000'` correlate with MIDI-CC-type
-assignments (which digits are the CC number vs the MIDI channel is not yet
-pinned down); `'S0000'`/`'S5000'`/`'X000'` are other assignment types,
-un-decoded. This module therefore still reads, writes, and restores values
-as opaque data -- it does not construct or interpret them. Only wire a real
-constructed value into app.midi.service's provisioning step once the digit
-positions are confirmed (assign a known CC + channel on the desk and read
-the string).
+decoded**: `'MC01000'`/`'MC02001'`/`'MC03002'` correlate with MIDI-CC-type
+assignments, but which digit group is the CC number vs the MIDI channel is
+not yet pinned down -- both fields incremented together in the observed
+data, so either reading fits. A button read `'Mc00000'` with a *lowercase*
+'c', so letter case apparently encodes an assignment sub-type (CC vs
+CC-toggle vs note..., un-decoded). `'S0000'`/`'S5000'`/`'X000'` are other
+assignment types, un-decoded. This module therefore still reads, writes,
+and restores values as opaque data -- it does not construct or interpret
+them. Only wire a real constructed value into app.midi.service's
+provisioning step once the digit positions are confirmed (assign a known,
+*asymmetric* CC + channel pair on the desk -- e.g. CC 7 on channel 16 --
+and read the string).
 
 Set C is off-limits per CLAUDE.md's core design principle #4 -- VALID_SETS
 only ever contains "A" and "B", and there is no function here that can

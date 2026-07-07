@@ -388,13 +388,18 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   encoder assignments were changed on the desk: `'X000'`, `'S0000'`, `'S5000'`
   (pre-existing assignments of other types), then `'MC01000'`/`'MC03000'`/
   `'MC04000'` (MIDI-CC-type assignments). `app/osc/assign_set.py` now uses the
-  confirmed shape. Still open within this item: (a) button numbering — assumed
-  `/config/userctrl/<set>/btn/<5-12>` (continuing past the 4 encoders, per
-  Maillot's tree), not yet observed live; the next passive capture confirms it
-  for free (wrong addresses read back None harmlessly); (b) which digits of the
-  `'MC.....'` string are the CC number vs the MIDI channel — assign a *known*
-  CC + channel on the desk during the sniff step to pin it down before
-  constructing assignment values in `app.midi.service._provision_slot`.
+  confirmed shape. **Button numbering confirmed by a second sniff the same
+  day**: button assignment changes pushed `/config/userctrl/A/btn/5` and
+  `/btn/6` (btn/5-12; 5 and 6 observed directly, 7-12 by the now-verified
+  pattern). Still open within this item: which digit group of the `'MC.....'`
+  string is the CC number vs the MIDI channel — the second sniff read
+  `'MC01000'`/`'MC02001'`/`'MC03002'` off encoders 1-3, where both candidate
+  fields increment together, so either reading fits; assign a known,
+  *asymmetric* CC + channel pair (e.g. CC 7 on channel 16) during the sniff
+  step to pin it down before constructing assignment values in
+  `app.midi.service._provision_slot`. Also observed: a button value
+  `'Mc00000'` with lowercase 'c' — letter case apparently encodes an
+  assignment sub-type (CC vs CC-toggle vs note...), un-decoded.
 - **`/meters` blob *structure* confirmed on real hardware (2026-07-07, firmware
   4.13); slot *meaning* still unmapped.** Subscribing with the documented form
   (send the parent `/meters` address with the blob path as a string argument,
@@ -403,13 +408,18 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   `int32 count + count × float32`, both **little-endian** (unlike OSC's own
   big-endian wire format), floats 0..1: `/meters/1` = 96 values, `/meters/2` =
   49 values. Decoder: `app.osc.meters.decode_meter_blob` (validated against the
-  committed real capture in `logs/protocol_discovery/`). Which slot is which
-  channel/bus is NOT yet mapped — the capture is consistent with `/meters/1`
-  slots 0-31 being channels 1-32 (all zero while every mic channel was silent),
-  but that's one uncontrolled observation; confirm with a controlled test
-  (signal on exactly one known channel, see which slot moves) before relying on
-  any index. The app's own UI meters don't depend on this either way (they're
-  computed from the app's captured audio, see "1. Audio engine").
+  committed real captures in `logs/protocol_discovery/`). Slot semantics, from
+  comparing two captures taken ~19 minutes apart: **`/meters/1` slots 0-31 are
+  the 32 live channel input meters** — all 32 show per-blob variance at the
+  analog noise floor (~1.4e-5 ≈ -97 dBFS, different every 50ms blob, in both
+  captures independently), which static parameters can't produce; **slots
+  32-95 are NOT audio meters** — bit-identical constants within and across
+  both captures, at round dB values (-21/-10/-20/0 dB), so whatever the
+  console packs there doesn't move with audio and must not be read as levels.
+  A final 1:1 index→channel check (signal on exactly one known channel) is
+  still worth doing before trusting a *specific* index. The app's own UI
+  meters don't depend on this either way (they're computed from the app's
+  captured audio, see "1. Audio engine").
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
 - **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
   from two sources: (1) a real console scene (`.scn`) file dump, and (2)

@@ -16,15 +16,27 @@ with zero bytes left over.
 
 Confirmed counts: /meters/1 carries 96 values, /meters/2 carries 49.
 
-**What each slot means is NOT yet mapped.** The same capture shows slots
-0-31 of /meters/1 all zero while the console's 32 input channels were
-silent, and activity in the mid-30s slot range while a stereo USB-player
-signal was live on Aux 7/8 -- consistent with slots 0-31 being channels
-1-32 followed by the 8 Aux ins, but that's one uncontrolled observation,
-not a mapping. Confirm with a controlled test (signal on exactly one known
-channel; see which slot moves) before relying on any slot index. The
-in-app level meters don't depend on this either way -- they're computed
-from the app's own captured audio (see CLAUDE.md "1. Audio engine").
+**Slot semantics, from comparing two captures taken ~19 minutes apart
+(same console, no signal during either capture's meters window):**
+
+- **/meters/1 slots 0-31 are the 32 live channel input meters** -- every
+  one of the 32 shows tiny per-blob variance at the analog noise floor
+  (~1.4e-5 ~= -97 dBFS, a different value in every 50 ms blob, in both
+  captures independently), which is exactly what idle preamp inputs look
+  like and cannot be produced by a static parameter. A final 1:1
+  index->channel confirmation (signal on exactly one known channel) is
+  still worth doing before trusting any *specific* index, but the region
+  is unambiguous.
+- **/meters/1 slots 32-95 are NOT audio meters** -- they were exactly
+  constant within each capture AND bit-identical across both captures,
+  sitting at suspiciously round dB values (0.0891 ~= -21 dB, 0.3162 =
+  -10 dB, 0.1 = -20 dB, 1.0 = 0 dB). Whatever the console packs in there
+  (thresholds/gains/fader-like parameters), it doesn't move with audio;
+  do not read those slots as levels.
+
+The in-app level meters don't depend on any of this either way -- they're
+computed from the app's own captured audio (see CLAUDE.md "1. Audio
+engine").
 """
 from __future__ import annotations
 
