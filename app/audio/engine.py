@@ -31,6 +31,7 @@ except OSError as exc:
     _IMPORT_ERROR = exc
 
 from app.audio.detection import FeedbackDetector
+from app.audio.devices import find_device_by_name
 from app.audio.echo_cancellation import EchoCanceller
 from app.audio.filters import NotchFilterBank
 from app.config import AppConfig
@@ -81,14 +82,16 @@ class AudioEngine:
                 "see app.audio.devices.list_input_devices()/list_output_devices()"
             )
 
-        self._running.set()
-        self._analysis_thread = threading.Thread(target=self._analysis_loop, name="audio-analysis", daemon=True)
-        self._analysis_thread.start()
-
         num_channels = max(
             [*self.filter_banks.keys(), *(self.config.echo_reference_card_channels or ())],
             default=1,
         )
+        self._validate_device_channel_counts(num_channels)
+
+        self._running.set()
+        self._analysis_thread = threading.Thread(target=self._analysis_loop, name="audio-analysis", daemon=True)
+        self._analysis_thread.start()
+
         self._stream = sd.Stream(
             device=(self.config.audio_input_device, self.config.audio_output_device),
             samplerate=self.config.audio_sample_rate,
@@ -102,6 +105,33 @@ class AudioEngine:
             "audio_engine_started",
             after={"input": self.config.audio_input_device, "output": self.config.audio_output_device},
         )
+
+    def _validate_device_channel_counts(self, num_channels: int) -> None:
+        """Card slot N is assumed to be channel index N-1 of the opened
+        stream (app.audio.devices' module docstring) -- that only holds if
+        the device actually has that many channels, so check explicitly
+        rather than let PortAudio fail with a less legible error, or worse,
+        silently open fewer channels than the routing/echo-reference setup
+        expects."""
+        input_device = find_device_by_name(self.config.audio_input_device)
+        if input_device is None:
+            raise AudioEngineError(f"audio_input_device {self.config.audio_input_device!r} not found")
+        if input_device.max_input_channels < num_channels:
+            raise AudioEngineError(
+                f"audio_input_device {self.config.audio_input_device!r} has only "
+                f"{input_device.max_input_channels} input channel(s), but {num_channels} are needed "
+                "(one per provisioned Card slot / echo reference channel)"
+            )
+
+        output_device = find_device_by_name(self.config.audio_output_device)
+        if output_device is None:
+            raise AudioEngineError(f"audio_output_device {self.config.audio_output_device!r} not found")
+        if output_device.max_output_channels < num_channels:
+            raise AudioEngineError(
+                f"audio_output_device {self.config.audio_output_device!r} has only "
+                f"{output_device.max_output_channels} output channel(s), but {num_channels} are needed "
+                "(one per provisioned Card slot / echo reference channel)"
+            )
 
     def stop(self) -> None:
         self._running.clear()

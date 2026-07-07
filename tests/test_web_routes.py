@@ -53,8 +53,8 @@ def test_list_devices_reports_enumeration_and_selection(monkeypatch, tmp_path, a
     config.audio_input_device = "Interface In"
 
     fake_device = AudioDevice(
-        index=0, name="Interface In", host_api="ALSA", max_input_channels=2, max_output_channels=0,
-        default_sample_rate=48000.0,
+        index=0, name="Interface In", host_api="ASIO", max_input_channels=2, max_output_channels=0,
+        default_sample_rate=48000.0, is_asio=True,
     )
     monkeypatch.setattr("app.web.routes.audio_devices.list_input_devices", lambda: [fake_device])
     monkeypatch.setattr("app.web.routes.audio_devices.list_output_devices", lambda: [])
@@ -66,8 +66,8 @@ def test_list_devices_reports_enumeration_and_selection(monkeypatch, tmp_path, a
     assert response.status_code == 200
     data = response.get_json()
     assert data["audio_inputs"] == [
-        {"index": 0, "name": "Interface In", "host_api": "ALSA", "max_input_channels": 2,
-         "max_output_channels": 0, "default_sample_rate": 48000.0}
+        {"index": 0, "name": "Interface In", "host_api": "ASIO", "max_input_channels": 2,
+         "max_output_channels": 0, "default_sample_rate": 48000.0, "is_asio": True}
     ]
     assert data["midi_inputs"] == ["X-USB MIDI 1"]
     assert data["selected"]["audio_input_device"] == "Interface In"

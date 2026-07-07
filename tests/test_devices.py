@@ -34,10 +34,40 @@ def test_list_input_and_output_devices_filter_by_channels(monkeypatch):
     ]
     monkeypatch.setattr(audio_devices, "sd", fake_sd)
 
-    inputs = audio_devices.list_input_devices()
-    outputs = audio_devices.list_output_devices()
+    # asio_only=False here since this test is about the channel-count
+    # filter specifically -- none of these fixtures are ASIO-hosted.
+    inputs = audio_devices.list_input_devices(asio_only=False)
+    outputs = audio_devices.list_output_devices(asio_only=False)
     assert {d.name for d in inputs} == {"X-USB", "Mic"}
     assert {d.name for d in outputs} == {"X-USB", "Speakers"}
+
+
+def test_list_input_and_output_devices_default_to_asio_only(monkeypatch):
+    fake_sd = MagicMock()
+    fake_sd.query_hostapis.return_value = [{"name": "ASIO"}, {"name": "MME"}]
+    fake_sd.query_devices.return_value = [
+        {"name": "X-USB ASIO", "hostapi": 0, "max_input_channels": 32, "max_output_channels": 32, "default_samplerate": 48000.0},
+        {"name": "X-USB MME", "hostapi": 1, "max_input_channels": 32, "max_output_channels": 32, "default_samplerate": 48000.0},
+    ]
+    monkeypatch.setattr(audio_devices, "sd", fake_sd)
+
+    inputs = audio_devices.list_input_devices()
+    outputs = audio_devices.list_output_devices()
+    assert [d.name for d in inputs] == ["X-USB ASIO"]
+    assert [d.name for d in outputs] == ["X-USB ASIO"]
+    assert inputs[0].is_asio is True
+
+
+def test_list_input_and_output_devices_empty_when_no_asio_available(monkeypatch):
+    fake_sd = MagicMock()
+    fake_sd.query_hostapis.return_value = [{"name": "MME"}]
+    fake_sd.query_devices.return_value = [
+        {"name": "X-USB MME", "hostapi": 0, "max_input_channels": 32, "max_output_channels": 32, "default_samplerate": 48000.0},
+    ]
+    monkeypatch.setattr(audio_devices, "sd", fake_sd)
+
+    assert audio_devices.list_input_devices() == []
+    assert audio_devices.list_output_devices() == []
 
 
 def test_find_device_by_name(monkeypatch):

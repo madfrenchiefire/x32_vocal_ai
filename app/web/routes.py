@@ -62,6 +62,12 @@ def list_devices():
         audio_inputs = [dataclasses.asdict(d) for d in audio_devices.list_input_devices()]
         audio_outputs = [dataclasses.asdict(d) for d in audio_devices.list_output_devices()]
         audio_error = None
+        if not audio_inputs and not audio_outputs:
+            audio_error = (
+                "No ASIO audio devices found. Card slot numbers must map 1:1 to the audio "
+                "interface's channels, which only ASIO guarantees -- install/enable the X-USB "
+                "card's ASIO driver (or whichever ASIO driver your interface provides)."
+            )
     except RuntimeError as exc:
         audio_inputs, audio_outputs, audio_error = [], [], str(exc)
 

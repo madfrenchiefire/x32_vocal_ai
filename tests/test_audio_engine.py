@@ -7,11 +7,19 @@ import pytest
 
 import app.audio.engine as engine_module
 from app.audio.detection import FeedbackCandidate, FeedbackDetector
+from app.audio.devices import AudioDevice
 from app.audio.engine import AudioEngine, AudioEngineError
 from app.audio.filters import NotchFilterBank
 from app.audio.ml.classifier import FeedbackClassifier
 from app.config import AppConfig
 from app.state import AppState
+
+
+def _fake_asio_device(name: str, channels: int = 32) -> AudioDevice:
+    return AudioDevice(
+        index=0, name=name, host_api="ASIO", max_input_channels=channels, max_output_channels=channels,
+        default_sample_rate=48000.0, is_asio=True,
+    )
 
 
 def test_feedback_classifier_is_not_yet_implemented():
@@ -33,10 +41,18 @@ def test_start_without_configured_devices_raises(diagnostics):
         engine.start()
 
 
+def _patch_devices(monkeypatch, input_device, output_device):
+    def fake_find(name):
+        return {input_device.name: input_device, output_device.name: output_device}.get(name)
+
+    monkeypatch.setattr(engine_module, "find_device_by_name", fake_find)
+
+
 def test_start_opens_stream_and_stop_closes_it(monkeypatch, diagnostics):
     fake_stream = MagicMock()
     stream_factory = MagicMock(return_value=fake_stream)
     monkeypatch.setattr(engine_module.sd, "Stream", stream_factory)
+    _patch_devices(monkeypatch, _fake_asio_device("Input A"), _fake_asio_device("Output B"))
 
     engine = _make_engine(diagnostics, audio_input_device="Input A", audio_output_device="Output B")
     engine.start()
@@ -50,6 +66,33 @@ def test_start_opens_stream_and_stop_closes_it(monkeypatch, diagnostics):
     engine.stop()
     fake_stream.stop.assert_called_once()
     fake_stream.close.assert_called_once()
+
+
+def test_start_raises_when_input_device_not_found(monkeypatch, diagnostics):
+    _patch_devices(monkeypatch, _fake_asio_device("Input A"), _fake_asio_device("Output B"))
+    engine = _make_engine(diagnostics, audio_input_device="Missing Device", audio_output_device="Output B")
+    with pytest.raises(AudioEngineError, match="not found"):
+        engine.start()
+
+
+def test_start_raises_when_input_device_has_too_few_channels(monkeypatch, diagnostics):
+    # filter_banks has key 1, so num_channels required is at least 1 -- use
+    # a bank keyed at slot 5 to require 5 channels from a 2-channel device.
+    engine = _make_engine(diagnostics, audio_input_device="Input A", audio_output_device="Output B")
+    engine.filter_banks = {5: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)}
+    _patch_devices(monkeypatch, _fake_asio_device("Input A", channels=2), _fake_asio_device("Output B", channels=32))
+
+    with pytest.raises(AudioEngineError, match="has only 2 input channel"):
+        engine.start()
+
+
+def test_start_raises_when_output_device_has_too_few_channels(monkeypatch, diagnostics):
+    engine = _make_engine(diagnostics, audio_input_device="Input A", audio_output_device="Output B")
+    engine.filter_banks = {5: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)}
+    _patch_devices(monkeypatch, _fake_asio_device("Input A", channels=32), _fake_asio_device("Output B", channels=2))
+
+    with pytest.raises(AudioEngineError, match="has only 2 output channel"):
+        engine.start()
 
 
 def test_audio_callback_applies_notch_bank_per_channel(diagnostics):

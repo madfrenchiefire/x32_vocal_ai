@@ -22,15 +22,28 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 ## Architecture — three services, one Flask/WebSocket backend
 
 ### 1. Audio engine
-- **Device selection is user-configurable, not hardcoded.** The app must not assume
-  the X-USB card is the only option, and input/output need not be the same device.
-  Enumerate available PortAudio devices (`app/audio/devices.py`, implemented) and
-  let the user pick which is the input device and which is the output device;
-  persist the choice (`AppConfig.audio_input_device` / `audio_output_device`, by
-  device name). `None` = not yet chosen — the audio engine must not silently guess.
+- **Device selection is user-configurable, not hardcoded — but ASIO is required, not
+  optional.** The app must not assume the X-USB card is the only option, and input/
+  output need not be the same device. Enumerate available PortAudio devices
+  (`app/audio/devices.py`, implemented) and let the user pick which is the input
+  device and which is the output device; persist the choice
+  (`AppConfig.audio_input_device` / `audio_output_device`, by device name). `None` =
+  not yet chosen — the audio engine must not silently guess.
   `python -m app.tools.list_devices` prints what's available on the current PC.
-- `sounddevice` (PortAudio), expected to be the Behringer X-USB ASIO driver, 48 kHz,
-  64–128 sample buffer. Target total round trip ≤ ~10 ms; measure it (loopback click test).
+  **`list_input_devices()`/`list_output_devices()` filter to ASIO-hosted devices only
+  by default** (`asio_only=True`) — a Windows audio interface typically exposes both
+  an ASIO device and one or more MME/WDM/WASAPI "wrapped" devices for the same
+  physical hardware, and only the ASIO one guarantees the direct, stable channel
+  order this app depends on: **Card slot N is assumed to be channel index N-1 of
+  the opened stream**, everywhere from `app.audio.engine.AudioEngine`'s
+  `filter_banks`/`echo_cancellers` dict keys to `app.osc.routing_apply`'s Card slot
+  bookkeeping. A non-ASIO wrapper can remap or downmix channels, silently breaking
+  that assumption. `AudioEngine.start()` additionally validates the configured
+  devices actually have enough channels for what's been provisioned, raising a
+  clear `AudioEngineError` instead of an opaque PortAudio failure (or worse, silently
+  opening fewer channels than expected) if not.
+- `sounddevice` (PortAudio) via the ASIO driver, 48 kHz, 64–128 sample buffer.
+  Target total round trip ≤ ~10 ms; measure it (loopback click test).
 - Audio callback does per-channel biquad notch filtering plus, if echo cancellation
   is enabled for that channel, the adaptive echo canceller (`scipy`/numpy, persistent
   state, preallocated buffers, no allocation in callback).
