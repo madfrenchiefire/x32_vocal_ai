@@ -1,0 +1,1478 @@
+{
+  "created_at": "2026-07-07T22:14:52.100+00:00",
+  "full_state": {
+    "xinfo": {
+      "ip": "10.10.0.142",
+      "name": "Jason's X32",
+      "model": "X32",
+      "version": "4.13"
+    },
+    "routing_snapshot": {
+      "schema_version": 3,
+      "created_at": "2026-07-07T22:14:52.719+00:00",
+      "name": "protocol_discovery",
+      "console": {
+        "ip": "10.10.0.142",
+        "name": "Jason's X32",
+        "model": "X32",
+        "version": "4.13"
+      },
+      "userrout_in": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "userrout_out": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        183,
+        184,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "routing": {
+        "routswitch": [
+          0
+        ],
+        "in": [
+          0,
+          1,
+          2,
+          3,
+          0
+        ],
+        "aes50a": [
+          20,
+          21,
+          20,
+          21,
+          22,
+          23
+        ],
+        "aes50b": [
+          20,
+          21,
+          20,
+          21,
+          22,
+          23
+        ],
+        "card": [
+          0,
+          1,
+          2,
+          29
+        ],
+        "out": [
+          20,
+          20,
+          21,
+          21
+        ],
+        "play": [
+          16,
+          17,
+          18,
+          19,
+          0
+        ]
+      },
+      "routing_addresses_verified": true
+    },
+    "assign_sets": {
+      "/config/ctrl/A/enc/1": null,
+      "/config/ctrl/A/enc/2": null,
+      "/config/ctrl/A/enc/3": null,
+      "/config/ctrl/A/enc/4": null,
+      "/config/ctrl/A/btn/1": null,
+      "/config/ctrl/A/btn/2": null,
+      "/config/ctrl/A/btn/3": null,
+      "/config/ctrl/A/btn/4": null,
+      "/config/ctrl/A/btn/5": null,
+      "/config/ctrl/A/btn/6": null,
+      "/config/ctrl/A/btn/7": null,
+      "/config/ctrl/A/btn/8": null,
+      "/config/ctrl/B/enc/1": null,
+      "/config/ctrl/B/enc/2": null,
+      "/config/ctrl/B/enc/3": null,
+      "/config/ctrl/B/enc/4": null,
+      "/config/ctrl/B/btn/1": null,
+      "/config/ctrl/B/btn/2": null,
+      "/config/ctrl/B/btn/3": null,
+      "/config/ctrl/B/btn/4": null,
+      "/config/ctrl/B/btn/5": null,
+      "/config/ctrl/B/btn/6": null,
+      "/config/ctrl/B/btn/7": null,
+      "/config/ctrl/B/btn/8": null
+    },
+    "channel_configs": {
+      "1": null,
+      "2": null,
+      "3": null,
+      "4": null,
+      "5": null,
+      "6": null,
+      "7": null,
+      "8": null,
+      "9": null,
+      "10": null,
+      "11": null,
+      "12": null,
+      "13": null,
+      "14": null,
+      "15": null,
+      "16": null,
+      "17": null,
+      "18": null,
+      "19": null,
+      "20": null,
+      "21": null,
+      "22": null,
+      "23": null,
+      "24": null,
+      "25": null,
+      "26": null,
+      "27": null,
+      "28": null,
+      "29": null,
+      "30": null,
+      "31": null,
+      "32": null
+    }
+  },
+  "main_lr_reference_watch": {},
+  "assign_set_sniff": [
+    {
+      "address": "/config/userctrl/A/enc/1",
+      "args": [
+        "X000"
+      ]
+    },
+    {
+      "address": "/config/userctrl/A/enc/1",
+      "args": [
+        "MC01000"
+      ]
+    },
+    {
+      "address": "/config/userctrl/A/enc/2",
+      "args": [
+        "S0000"
+      ]
+    },
+    {
+      "address": "/config/userctrl/A/enc/2",
+      "args": [
+        "MC01000"
+      ]
+    },
+    {
+      "address": "/config/userctrl/A/enc/3",
+      "args": [
+        "S5000"
+      ]
+    },
+    {
+      "address": "/config/userctrl/A/enc/3",
+      "args": [
+        "MC01000"
+      ]
+    },
+    {
+      "address": "/config/userctrl/A/enc/3",
+      "args": [
+        "MC04000"
+      ]
+    },
+    {
+      "address": "/config/userctrl/A/enc/2",
+      "args": [
+        "MC03000"
+      ]
+    },
+    {
+      "address": "/xinfo",
+      "args": [
+        "10.10.0.142",
+        "Jason's X32",
+        "X32",
+        "4.13"
+      ]
+    },
+    {
+      "address": "/xinfo",
+      "args": [
+        "10.10.0.142",
+        "Jason's X32",
+        "X32",
+        "4.13"
+      ]
+    },
+    {
+      "address": "/xinfo",
+      "args": [
+        "10.10.0.142",
+        "Jason's X32",
+        "X32",
+        "4.13"
+      ]
+    },
+    {
+      "address": "/ch/02/config/name",
+      "args": [
+        "Test"
+      ]
+    },
+    {
+      "address": "/ch/02/config/name",
+      "args": [
+        "Left Vocal"
+      ]
+    },
+    {
+      "address": "/-stat/tape/state",
+      "args": [
+        2
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        0
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        581
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        1
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        580
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        2
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        579
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        3
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        578
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        4
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        577
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        5
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        576
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        6
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        575
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        7
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        574
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        8
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        573
+      ]
+    },
+    {
+      "address": "/-stat/tape/state",
+      "args": [
+        0
+      ]
+    },
+    {
+      "address": "/-stat/tape/state",
+      "args": [
+        2
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        0
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        581
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        580
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        1
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        579
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        2
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        578
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        3
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        577
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.0029325513169169426
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.0029325513169169426
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.005865102633833885
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.005865102633833885
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.009775171056389809
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.009775171056389809
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.012707722373306751
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.012707722373306751
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.015640273690223694
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.015640273690223694
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.01857282593846321
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.01857282593846321
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.022482894361019135
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.022482894361019135
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.025415444746613503
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.025415444746613503
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.02834799699485302
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.02834799699485302
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.03128054738044739
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.03128054738044739
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.03519061580300331
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.03519061580300331
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.03812316805124283
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.03812316805124283
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.043988268822431564
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.043988268822431564
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.04789833724498749
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.04789833724498749
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.050830889493227005
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.050830889493227005
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.05669599398970604
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.05669599398970604
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.06060606241226196
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.06060606241226196
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.06353861093521118
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.06353861093521118
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.066471166908741
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.066471166908741
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.06940371543169022
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.06940371543169022
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.07331378012895584
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.07331378012895584
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.07624633610248566
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.07624633610248566
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.07917888462543488
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.07917888462543488
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.08211144059896469
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.08211144059896469
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.08602150529623032
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.08602150529623032
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.08895405381917953
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.08895405381917953
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.09188660979270935
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.09188660979270935
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.09481915831565857
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.09481915831565857
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.09872923046350479
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.09872923046350479
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.10166177898645401
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.10166177898645401
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.10459432750940323
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.10459432750940323
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.10752688348293304
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.10752688348293304
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.11143694818019867
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.11143694818019867
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.11436950415372849
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.11436950415372849
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.1173020526766777
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.1173020526766777
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.12023460119962692
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.12023460119962692
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.12414467334747314
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.12414467334747314
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.12707722187042236
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.12707722187042236
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.13000977039337158
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.13000977039337158
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.132942333817482
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.132942333817482
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.1358748823404312
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.1358748823404312
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.13978494703769684
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.13978494703769684
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.14271749556064606
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.14271749556064606
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.1485826075077057
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.1485826075077057
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.1524926722049713
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.1524926722049713
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.15542522072792053
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.15542522072792053
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.15835776925086975
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.15835776925086975
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.16129031777381897
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.16129031777381897
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.1652003973722458
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.1652003973722458
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.168132945895195
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.168132945895195
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.17106549441814423
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.17106549441814423
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.17399804294109344
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.17399804294109344
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.17790810763835907
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.17790810763835907
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.18084067106246948
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.18084067106246948
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.1837732195854187
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.1837732195854187
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.18670576810836792
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.18670576810836792
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.19061583280563354
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.19061583280563354
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.19354838132858276
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.19354838132858276
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.19648094475269318
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.19648094475269318
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.1994134932756424
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.1994134932756424
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.20332355797290802
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.20332355797290802
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.20625610649585724
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.20625610649585724
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.20918865501880646
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.20918865501880646
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.21212121844291687
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.21212121844291687
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.2160312831401825
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.2160312831401825
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.2189638316631317
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.2189638316631317
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.22189638018608093
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.22189638018608093
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.22482892870903015
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.22482892870903015
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.22873900830745697
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.22873900830745697
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.2316715568304062
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.2316715568304062
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.2346041053533554
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.2346041053533554
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.23753665387630463
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.23753665387630463
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.24144671857357025
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.24144671857357025
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.24437928199768066
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.24437928199768066
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.24731183052062988
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.24731183052062988
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.2502443790435791
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.2502443790435791
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.2541544437408447
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.2541544437408447
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.25708699226379395
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.25708699226379395
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.26001954078674316
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.26001954078674316
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.2629520893096924
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.2629520893096924
+      ]
+    },
+    {
+      "address": "/auxin/07/mix/fader",
+      "args": [
+        0.265884667634964
+      ]
+    },
+    {
+      "address": "/auxin/08/mix/fader",
+      "args": [
+        0.265884667634964
+      ]
+    },
+    {
+      "address": "/-stat/tape/etime",
+      "args": [
+        4
+      ]
+    },
+    {
+      "address": "/-stat/tape/rtime",
+      "args": [
+        576
+      ]
+    }
+  ],
+  "meters_capture": {
+    "/meters/1": {
+      "message_count": 60,
+      "raw_dump": "logs\\protocol_discovery\\meters_meters_1_20260707T221452Z.bin"
+    },
+    "/meters/2": {
+      "message_count": 59,
+      "raw_dump": "logs\\protocol_discovery\\meters_meters_2_20260707T221452Z.bin"
+    }
+  }
+}
