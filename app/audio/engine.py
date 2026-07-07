@@ -31,6 +31,7 @@ except OSError as exc:
     _IMPORT_ERROR = exc
 
 from app.audio.detection import FeedbackDetector
+from app.audio.echo_cancellation import EchoCanceller
 from app.audio.filters import NotchFilterBank
 from app.config import AppConfig
 from app.diagnostics.logger import DiagnosticsLogger
@@ -50,11 +51,13 @@ class AudioEngine:
         diagnostics: DiagnosticsLogger,
         filter_banks: dict[int, NotchFilterBank] | None = None,
         detector: FeedbackDetector | None = None,
+        echo_cancellers: dict[int, EchoCanceller] | None = None,
     ) -> None:
         self.config = config
         self.diagnostics = diagnostics
         self.filter_banks = filter_banks if filter_banks is not None else {}
         self.detector = detector or FeedbackDetector(sample_rate=config.audio_sample_rate)
+        self.echo_cancellers = echo_cancellers if echo_cancellers is not None else {}
 
         self._stream = None
         self._analysis_queue: queue.Queue = queue.Queue(maxsize=ANALYSIS_QUEUE_SIZE)
@@ -74,7 +77,10 @@ class AudioEngine:
         self._analysis_thread = threading.Thread(target=self._analysis_loop, name="audio-analysis", daemon=True)
         self._analysis_thread.start()
 
-        num_channels = max(self.filter_banks.keys(), default=1)
+        num_channels = max(
+            [*self.filter_banks.keys(), *(self.config.echo_reference_card_channels or ())],
+            default=1,
+        )
         self._stream = sd.Stream(
             device=(self.config.audio_input_device, self.config.audio_output_device),
             samplerate=self.config.audio_sample_rate,
@@ -112,15 +118,36 @@ class AudioEngine:
     def _audio_callback(self, indata: np.ndarray, outdata: np.ndarray, frames: int, time_info, status) -> None:
         """PortAudio callback. Real-time constraint: filter processing
         only, no analysis/ML, no diagnostics logging on the hot path."""
+        reference_block = self._read_reference_block(indata)
         for channel_index in range(indata.shape[1]):
             channel_number = channel_index + 1
+            signal = indata[:, channel_index]
+
+            canceller = self.echo_cancellers.get(channel_number)
+            if canceller is not None and reference_block is not None:
+                signal = canceller.process(signal, reference_block)
+
             bank = self.filter_banks.get(channel_number)
-            outdata[:, channel_index] = bank.process(indata[:, channel_index]) if bank is not None else indata[:, channel_index]
+            outdata[:, channel_index] = bank.process(signal) if bank is not None else signal
 
         try:
             self._analysis_queue.put_nowait(indata.copy())
         except queue.Full:
             pass  # analysis thread is behind -- drop this block rather than block the callback
+
+    def _read_reference_block(self, indata: np.ndarray) -> np.ndarray | None:
+        """Mono-mixed echo reference from the two Card channels the console's
+        Main L/R bus was auto-routed onto (app.audio.echo_cancellation.
+        auto_route_reference_signal). None if echo cancellation hasn't been
+        set up, or the stream wasn't opened wide enough to include those
+        channels."""
+        ref_channels = self.config.echo_reference_card_channels
+        if ref_channels is None:
+            return None
+        slot_a, slot_b = ref_channels
+        if slot_a > indata.shape[1] or slot_b > indata.shape[1]:
+            return None
+        return ((indata[:, slot_a - 1] + indata[:, slot_b - 1]) * 0.5).astype(indata.dtype, copy=False)
 
     def _analysis_loop(self) -> None:
         while self._running.is_set():
