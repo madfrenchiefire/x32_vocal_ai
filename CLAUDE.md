@@ -101,6 +101,20 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 - `python-osc`. Send `/xremote` and refresh every ~8 s to receive state changes.
   Subscribe to `/meters` (binary blobs) for live channel meters.
 - On connect: query `/xinfo`, require firmware 4.0+ (User In/Out routing).
+- **`/xremote` gets no reply — a genuinely healthy, idle console can go quiet for
+  arbitrarily long stretches.** It only tells the console "keep pushing me
+  state-change notifications for the next ~10s"; if nothing on the console
+  changes, nothing comes back, and that's normal, not a sign of a dead
+  connection. **Confirmed as a real bug against a live console (2026-07-07)**:
+  the watchdog's original "no incoming traffic in `xremote_interval_sec * 2.5`
+  seconds ⇒ disconnected" heuristic mistook ordinary console silence for a lost
+  connection, flapping `connected`/`disconnected` roughly every 20s whenever the
+  console sat idle — including a real user-visible failure (a routing-snapshot
+  request landing during one of those false "disconnected" windows got a bogus
+  503). Fixed in `OscConnection._watchdog_loop`/`_probe_alive`: a stale-looking
+  connection is now confirmed with one active `/xinfo` query-reply pair before
+  ever being declared lost; only a failed *active* probe now triggers the
+  `connection_lost` → reconnect-with-backoff path.
 - **Confirmed address shapes** (from Patrick-Gilles Maillot's own reverse-engineered
   parameter table and enum tables, github.com/pmaillot/X32-Behringer,
   `X32CfgMain.h` / `X32.c` — see "Open items to verify" below): each channel has

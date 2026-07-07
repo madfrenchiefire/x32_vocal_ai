@@ -118,6 +118,30 @@ def test_query_until_match_retries_through_a_settling_write(fake_x32, diagnostic
         osc.close()
 
 
+def test_watchdog_does_not_flag_an_idle_but_alive_console_as_disconnected(monkeypatch, fake_x32, diagnostics, app_state):
+    # /xremote itself gets no reply -- an idle console (nothing changed,
+    # so nothing pushed back) legitimately produces no incoming traffic
+    # for a while. The watchdog must confirm with an active /xinfo probe
+    # (which the fake console still answers) before ever declaring the
+    # connection lost, rather than treating quiet time alone as a
+    # disconnect.
+    monkeypatch.setattr(connection_module, "WATCHDOG_TICK_SEC", 0.05)
+    osc = make_connection(fake_x32, diagnostics, app_state, xremote_interval_sec=0.1)
+    try:
+        osc.connect()
+        assert osc.connected is True
+
+        # Outlast the stale threshold (xremote_interval_sec * 2.5 = 0.25s)
+        # several times over, with the fake console still answering.
+        time.sleep(1.0)
+        assert osc.connected is True
+
+        events = [e for e in diagnostics.get_recent(200) if e["category"] == "watchdog"]
+        assert not any(e["payload"]["event"] == "connection_lost" for e in events)
+    finally:
+        osc.close()
+
+
 def test_watchdog_detects_loss_and_reconnects(monkeypatch, fake_x32, diagnostics, app_state):
     monkeypatch.setattr(connection_module, "WATCHDOG_TICK_SEC", 0.05)
     osc = make_connection(fake_x32, diagnostics, app_state, xremote_interval_sec=0.1)

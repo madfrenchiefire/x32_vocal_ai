@@ -348,6 +348,18 @@ class OscConnection:
             except OSError as exc:
                 self._diagnostics.log_error(exc, context="failed to send /xremote keepalive")
 
+    def _probe_alive(self) -> bool:
+        """Active /xinfo query-reply pair, used to confirm a genuinely
+        stale-looking connection before declaring it lost. A successful
+        reply also refreshes _last_rx_monotonic via _recv_loop, so a false
+        alarm doesn't just get silently swallowed here -- it corrects the
+        staleness clock too."""
+        try:
+            self.query(addresses.XINFO, timeout=self.timeout_sec)
+            return True
+        except TimeoutError:
+            return False
+
     def _watchdog_loop(self) -> None:
         stale_threshold = self.xremote_interval_sec * 2.5
         backoff_index = 0
@@ -362,6 +374,17 @@ class OscConnection:
             stale = last_rx is None or (now - last_rx) > stale_threshold
 
             if was_connected and stale:
+                # /xremote itself gets no reply -- it just asks the console
+                # to keep pushing state-change notifications, so total
+                # silence for a while is normal if nothing on the console
+                # changed, not evidence the connection is actually down.
+                # Confirm with an active /xinfo query before declaring it
+                # lost, rather than treating console quiet time as a
+                # disconnect (which would flap connected/disconnected every
+                # ~stale_threshold seconds during any idle stretch).
+                if self._probe_alive():
+                    continue
+
                 with self._state_lock:
                     self._connected = False
                 if self._state is not None:
