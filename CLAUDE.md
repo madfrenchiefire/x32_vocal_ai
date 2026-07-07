@@ -207,6 +207,15 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   confidence threshold slider (inert regardless, since Phase 5's ML classifier
   doesn't exist) and the per-channel spectrum display (blocked on the
   unconfirmed `/meters` blob layout below).
+- **socket.io client is loaded from a CDN** (`cdn.socket.io`), not vendored
+  locally — the venue PC needs internet access at least once (browser caching
+  covers repeat runs offline). Verified this degrades gracefully rather than
+  breaking the page if that script fails to load (e.g. no internet at a gig):
+  the rest of the UI (devices, routing grid, settings, manual event-log load
+  via `/api/events`) still works, just without live WebSocket push, confirmed
+  with Playwright against a real running server. Worth vendoring the client
+  file locally if offline-first turns out to matter more than initially
+  assumed.
 
 ## Build phases
 1. **Plumbing**: ASIO passthrough Card 1–4 → app → Card 1–4, latency measurement.
