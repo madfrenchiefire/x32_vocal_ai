@@ -92,16 +92,18 @@ class AppState:
 
     def apply_channel_configs(self, configs: dict[int, tuple | None]) -> None:
         """Update scribble_name/scribble_color from a
-        app.osc.scribble_strip.read_all_channel_configs() result. A channel
-        whose config is None (query timed out) is left untouched rather
-        than being blanked out."""
+        app.osc.scribble_strip.read_all_channel_configs() result of
+        (name, color_token) pairs. A field whose read timed out (None) is
+        left untouched rather than being blanked out."""
         with self._lock:
             for channel, config in configs.items():
                 if config is None or channel not in self.channels:
                     continue
-                name, _icon, color, _source_number = config
-                self.channels[channel].scribble_name = name
-                self.channels[channel].scribble_color = color
+                name, color = config
+                if name is not None:
+                    self.channels[channel].scribble_name = name
+                if color is not None:
+                    self.channels[channel].scribble_color = color
 
     def summary(self) -> dict:
         """Plain-dict snapshot of current state, safe to serialize.

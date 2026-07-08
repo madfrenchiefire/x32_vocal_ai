@@ -587,10 +587,12 @@ def test_refresh_channel_names_without_osc_503s(tmp_path, app_state, diagnostics
 
 
 def test_refresh_channel_names_updates_state_and_returns_channels(fake_x32, tmp_path, app_state, diagnostics):
-    from app.osc.scribble_strip import channel_config_addr
+    from app.osc.scribble_strip import channel_color_addr, channel_name_addr
 
-    fake_x32.extra_responses[channel_config_addr(1)] = ("Ruby Vocal", 51, "YE", 1)
-    fake_x32.extra_responses[channel_config_addr(9)] = ("Left Vocal", 50, "RD", 9)
+    fake_x32.extra_responses[channel_name_addr(1)] = ("Ruby Vocal",)
+    fake_x32.extra_responses[channel_color_addr(1)] = (3,)  # YE
+    fake_x32.extra_responses[channel_name_addr(9)] = ("Left Vocal",)
+    fake_x32.extra_responses[channel_color_addr(9)] = (1,)  # RD
 
     app, _sio, _config = _app(tmp_path, app_state, diagnostics)
     osc = _make_osc(fake_x32, diagnostics, app_state)
