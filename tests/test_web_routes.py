@@ -865,3 +865,50 @@ def test_channel_notches_endpoint_returns_live_bank_notches(tmp_path, app_state,
 
     # A channel with no card slot / bank simply has no notches.
     assert client.get("/api/channels/5/notches").get_json() == {"notches": []}
+
+
+# -- panic button ----------------------------------------------------------------
+
+
+def test_panic_endpoint_mutes_app_managed_channels_and_restore_unwinds(fake_x32, tmp_path, app_state, diagnostics):
+    from app.osc.panic import MUTED, UNMUTED, channel_mix_on_addr
+
+    fake_x32.extra_responses[channel_mix_on_addr(1)] = (UNMUTED,)
+    fake_x32.extra_responses[channel_mix_on_addr(9)] = (UNMUTED,)
+    app_state.channels[1].card_out_slot = 1
+    app_state.channels[9].card_out_slot = 3
+
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc)
+    client = app.test_client()
+    try:
+        response = client.post("/api/panic")
+        assert response.status_code == 200
+        assert response.get_json()["channels"] == [1, 9]
+        assert fake_x32.extra_responses[channel_mix_on_addr(1)] == (MUTED,)
+        assert fake_x32.extra_responses[channel_mix_on_addr(9)] == (MUTED,)
+        assert app_state.panic_mute_snapshot == {1: UNMUTED, 9: UNMUTED}
+
+        # Double-panic rejected while active.
+        assert client.post("/api/panic").status_code == 400
+
+        assert client.post("/api/panic/restore").status_code == 200
+        assert app_state.panic_mute_snapshot is None
+        import time
+        deadline = time.monotonic() + 1.0
+        while fake_x32.extra_responses[channel_mix_on_addr(1)] != (UNMUTED,) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert fake_x32.extra_responses[channel_mix_on_addr(1)] == (UNMUTED,)
+    finally:
+        osc.close()
+
+
+def test_panic_endpoint_without_managed_channels_400s(fake_x32, tmp_path, app_state, diagnostics):
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc)
+    client = app.test_client()
+    try:
+        assert client.post("/api/panic").status_code == 400
+        assert client.post("/api/panic/restore").status_code == 400  # not active
+    finally:
+        osc.close()

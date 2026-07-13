@@ -356,6 +356,15 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   `DiagnosticsLogger.add_listener` — not polled). **Not implemented**: the ML
   confidence threshold slider (inert regardless, since Phase 5's ML classifier
   doesn't exist).
+- **Panic button** (implemented, `app/osc/panic.py` + `POST /api/panic` /
+  `/api/panic/restore`, red PANIC/UN-PANIC button in the Global card):
+  instantly mutes every app-managed channel (any channel holding a Card slot
+  this session) via `/ch/NN/mix/on 0`. Pre-panic mute states are snapshotted
+  first — un-panic restores each channel to what it *was*, so a channel the
+  engineer already had muted stays muted. The mute writes are deliberately
+  fired unpaced before any verification (silencing the PA is the whole
+  point); a channel whose snapshot read timed out still gets muted, and is
+  then left muted on restore rather than guessed at.
 - **Spectrum display** (implemented — the console's own RTA, `app/osc/rta.py` +
   `POST /api/rta/start`/`/stop`, "Spectrum (console RTA)" card): streams the
   desk's 100-band RTA (`/meters/15`; blob format doc-confirmed —

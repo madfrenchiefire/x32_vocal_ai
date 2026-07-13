@@ -24,6 +24,7 @@ from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnection
 from app.osc.discovery import discover_consoles
 from app.osc.routing_apply import RoutingApplyError, apply_routing, bypass_channel, restore_snapshot
 from app.osc.routing_snapshot import read_routing_snapshot, save_snapshot
+from app.osc.panic import panic_mute, panic_restore
 from app.osc.rta import RtaStreamer, rta_source_for_channel
 from app.osc.scene import SceneSaveError, save_console_scene
 from app.osc.scribble_strip import read_all_channel_configs
@@ -372,6 +373,46 @@ def channel_notches(channel: int):
     card_slot = state.channels[channel].card_out_slot
     bank = audio_engine.filter_banks.get(card_slot) if (audio_engine is not None and card_slot is not None) else None
     return jsonify(notches=bank.active_notches() if bank is not None else [])
+
+
+@bp.route("/api/panic", methods=["POST"])
+def panic():
+    """Instantly mute every app-managed channel (any channel holding a
+    Card slot this session). Un-panic via /api/panic/restore puts each
+    channel's mute back to its pre-panic state."""
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    osc, error = _osc_or_error()
+    if error:
+        return error
+    if state.panic_mute_snapshot is not None:
+        return jsonify(error="panic already active -- use /api/panic/restore first"), 400
+
+    channels = sorted(ch for ch, c in state.channels.items() if c.card_out_slot is not None)
+    if not channels:
+        return jsonify(error="no app-managed channels to mute"), 400
+
+    correlation_id = diagnostics.log_user_action("panic", {"channels": channels})
+    snapshot = panic_mute(osc, diagnostics, channels, correlation_id=correlation_id)
+    state.panic_mute_snapshot = snapshot
+    return jsonify(panicked=True, channels=channels)
+
+
+@bp.route("/api/panic/restore", methods=["POST"])
+def panic_restore_route():
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    osc, error = _osc_or_error()
+    if error:
+        return error
+    snapshot = state.panic_mute_snapshot
+    if snapshot is None:
+        return jsonify(error="panic is not active"), 400
+
+    correlation_id = diagnostics.log_user_action("panic_restore")
+    panic_restore(osc, diagnostics, snapshot, correlation_id=correlation_id)
+    state.panic_mute_snapshot = None
+    return jsonify(panicked=False)
 
 
 @bp.route("/api/rta/start", methods=["POST"])

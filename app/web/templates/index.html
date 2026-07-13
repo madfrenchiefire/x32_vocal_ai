@@ -132,6 +132,7 @@
     }
     .btn:active { transform: translateY(1px); }
     .btn-primary { background: var(--accent); color: #fff; }
+    .btn-danger { background: var(--danger); color: #fff; font-weight: 700; }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary { background: transparent; border-color: var(--border); color: var(--text); }
     .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
@@ -283,6 +284,11 @@
           <button class="btn btn-secondary btn-sm" id="echo-ref-set-btn">Set Reference</button>
         </div>
         <div id="echo-status" class="status"></div>
+        <div class="field" style="margin-top: 0.6rem;">
+          <button class="btn btn-danger" id="panic-btn"
+                  title="Instantly mute every app-managed channel on the console. Un-panic restores each channel's previous mute state.">PANIC</button>
+        </div>
+        <div id="panic-status" class="status"></div>
       </section>
     </div>
 
@@ -427,6 +433,43 @@
         }
       } catch (err) {
         setStatus("echo-status", `Failed to load echo cancellation state: ${err}`, "error");
+      }
+    }
+
+    let panicActive = false;
+
+    function renderPanicButton() {
+      const btn = el("panic-btn");
+      btn.textContent = panicActive ? "UN-PANIC" : "PANIC";
+      btn.title = panicActive
+        ? "Restore every channel's pre-panic mute state"
+        : "Instantly mute every app-managed channel on the console. Un-panic restores each channel's previous mute state.";
+    }
+
+    el("panic-btn").addEventListener("click", async () => {
+      try {
+        if (!panicActive) {
+          const data = await api("/api/panic", { method: "POST" });
+          panicActive = true;
+          setStatus("panic-status", `Muted channels ${data.channels.join(", ")}.`, "error");
+        } else {
+          await api("/api/panic/restore", { method: "POST" });
+          panicActive = false;
+          setStatus("panic-status", "Mute states restored.", "success");
+        }
+        renderPanicButton();
+      } catch (err) {
+        setStatus("panic-status", `Panic action failed: ${err}`, "error");
+      }
+    });
+
+    async function loadPanicState() {
+      try {
+        const data = await api("/api/state");
+        panicActive = Boolean(data.state.panic_active);
+        renderPanicButton();
+      } catch (err) {
+        // non-fatal; button defaults to PANIC
       }
     }
 
@@ -1151,6 +1194,7 @@
     loadRecentEvents();
     loadInitialLevels();
     loadEchoState();
+    loadPanicState();
   </script>
 </body>
 </html>

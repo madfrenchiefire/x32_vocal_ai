@@ -80,6 +80,9 @@ class AppState:
         # saved this session -- it's saved once, before the app's first
         # routing write, not on every apply.
         self.safety_scene_saved: bool = False
+        # Pre-panic /ch/NN/mix/on values while a panic mute is active
+        # (app.osc.panic); None = not currently panicked.
+        self.panic_mute_snapshot: dict[int, int | None] | None = None
         self.channels: dict[int, ChannelState] = {i: ChannelState(index=i) for i in range(1, 33)}
 
     def update_connection(self, **changes: Any) -> None:
@@ -132,5 +135,6 @@ class AppState:
                 "has_assign_set_snapshot": self.assign_set_snapshot is not None,
                 "console_eq_snapshot_channels": sorted(self.console_eq_snapshots),
                 "safety_scene_saved": self.safety_scene_saved,
+                "panic_active": self.panic_mute_snapshot is not None,
                 "channels": {i: vars(c).copy() for i, c in self.channels.items()},
             }
