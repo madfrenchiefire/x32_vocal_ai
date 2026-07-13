@@ -32,6 +32,7 @@ def create_app(
     midi_service: MidiService | None = None,
     config_path: str | None = None,
     watchdog: Watchdog | None = None,
+    gain_assist=None,
 ) -> tuple[Flask, SocketIO]:
     app = Flask(__name__)
     app.extensions["app_config"] = config
@@ -47,6 +48,7 @@ def create_app(
     app.extensions["audio_engine"] = audio_engine
     app.extensions["midi_service"] = midi_service
     app.extensions["watchdog"] = watchdog
+    app.extensions["gain_assist"] = gain_assist
     # Device selections are persisted here if set (app.web.routes'
     # /api/devices/select) -- None means "update the in-memory config for
     # this run only", so tests and ad-hoc create_app() callers never write
@@ -73,6 +75,7 @@ def run(
     midi_service: MidiService | None = None,
     config_path: str | None = None,
     watchdog: Watchdog | None = None,
+    gain_assist=None,
 ) -> None:
-    app, socketio = create_app(config, state, diagnostics, osc, audio_engine, midi_service, config_path, watchdog)
+    app, socketio = create_app(config, state, diagnostics, osc, audio_engine, midi_service, config_path, watchdog, gain_assist)
     socketio.run(app, host=config.web_host, port=config.web_port)

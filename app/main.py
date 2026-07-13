@@ -31,6 +31,7 @@ from app.config import AppConfig, load_config
 from app.diagnostics.logger import DiagnosticsLogger
 from app.midi.service import MidiService
 from app.osc.assign_set import snapshot_assign_sets
+from app.osc.gain_assist import GainAssist
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.routing_apply import RoutingApplyError, bypass_channel
 from app.state import AppState
@@ -181,6 +182,16 @@ def main(argv: list[str] | None = None) -> int:
     midi_service = _start_midi(config, diagnostics, state, osc)
     audio_engine = _start_audio(config, diagnostics, state)
 
+    # Opt-in last-resort preamp trim (app.osc.gain_assist): created even
+    # when disabled/unconnected so the web UI can toggle it and
+    # /api/console/connect can rewire its OSC handle live, mirroring the
+    # MidiService/watchdog pattern. request_trim is a no-op while
+    # disabled, so the engine hook is always safe to wire.
+    gain_assist = GainAssist(osc=osc, diagnostics=diagnostics, config=config, state=state)
+    gain_assist.start()
+    if audio_engine is not None:
+        audio_engine.on_notch_bank_saturated = gain_assist.request_trim
+
     # Armed unconditionally, even with osc=None on a first run with no
     # console configured yet -- app.web.routes' /api/console/connect
     # reassigns watchdog.osc once the user searches for or manually enters
@@ -200,11 +211,12 @@ def main(argv: list[str] | None = None) -> int:
         run_web(
             config, state, diagnostics,
             osc=osc, audio_engine=audio_engine, midi_service=midi_service, config_path=config_path,
-            watchdog=watchdog,
+            watchdog=watchdog, gain_assist=gain_assist,
         )
     finally:
         watchdog.trigger_full_restore(reason="clean_shutdown")
         watchdog.stop()
+        gain_assist.stop()
         if audio_engine is not None:
             audio_engine.stop()
         if midi_service is not None:

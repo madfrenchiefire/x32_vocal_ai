@@ -209,6 +209,9 @@ def connect_console():
     watchdog = current_app.extensions.get("watchdog")
     if watchdog is not None:
         watchdog.osc = osc
+    gain_assist = current_app.extensions.get("gain_assist")
+    if gain_assist is not None:
+        gain_assist.osc = osc
 
     try:
         state.set_assign_set_snapshot(snapshot_assign_sets(osc, diagnostics, correlation_id=correlation_id))
@@ -373,6 +376,46 @@ def channel_notches(channel: int):
     card_slot = state.channels[channel].card_out_slot
     bank = audio_engine.filter_banks.get(card_slot) if (audio_engine is not None and card_slot is not None) else None
     return jsonify(notches=bank.active_notches() if bank is not None else [])
+
+
+@bp.route("/api/gain_assist/toggle", methods=["POST"])
+def gain_assist_toggle():
+    """Enable/disable the opt-in last-resort preamp gain assist."""
+    config = current_app.extensions["app_config"]
+    diagnostics = current_app.extensions["diagnostics"]
+    body = request.get_json(force=True, silent=True) or {}
+    enabled = bool(body.get("enabled", False))
+
+    before = config.gain_assist_enabled
+    config.gain_assist_enabled = enabled
+    diagnostics.log_user_action("gain_assist_toggle", {"before": before, "enabled": enabled})
+    config_path = current_app.extensions.get("config_path")
+    if config_path is not None:
+        save_config(config, config_path)
+    return jsonify(enabled=enabled)
+
+
+@bp.route("/api/gain_assist/status")
+def gain_assist_status():
+    config = current_app.extensions["app_config"]
+    assist = current_app.extensions.get("gain_assist")
+    if assist is None:
+        return jsonify(enabled=config.gain_assist_enabled, trims_db={})
+    return jsonify(**assist.status())
+
+
+@bp.route("/api/gain_assist/restore", methods=["POST"])
+def gain_assist_restore():
+    diagnostics = current_app.extensions["diagnostics"]
+    assist = current_app.extensions.get("gain_assist")
+    if assist is None:
+        return jsonify(error="gain assist service not running"), 503
+    osc, error = _osc_or_error()
+    if error:
+        return error
+    correlation_id = diagnostics.log_user_action("gain_assist_restore")
+    restored = assist.restore_all(correlation_id=correlation_id)
+    return jsonify(restored_headamps=restored)
 
 
 @bp.route("/api/panic", methods=["POST"])

@@ -77,6 +77,7 @@ class AudioEngine:
         echo_cancellers: dict[int, EchoCanceller] | None = None,
         state: AppState | None = None,
         on_levels_update: Callable[[dict[int, float]], None] | None = None,
+        on_notch_bank_saturated: Callable[[int], None] | None = None,
     ) -> None:
         self.config = config
         self.diagnostics = diagnostics
@@ -95,6 +96,10 @@ class AudioEngine:
         # METERS_BROADCAST_INTERVAL_SEC. app.web.sockets wires this to a
         # WebSocket broadcast.
         self.on_levels_update = on_levels_update
+        # Called (from the analysis thread; must not block) when a
+        # channel's notch bank is full and detection still fires --
+        # wired to app.osc.gain_assist.GainAssist.request_trim.
+        self.on_notch_bank_saturated = on_notch_bank_saturated
 
         self._stream = None
         self._analysis_queue: queue.Queue = queue.Queue(maxsize=ANALYSIS_QUEUE_SIZE)
@@ -323,6 +328,13 @@ class AudioEngine:
                     bank.touch_notch(existing_id, now=now)
                     continue
                 if len(bank.active_notches()) >= bank.max_notches:
+                    # Bank saturated AND detection still firing: notching
+                    # has lost the gain-before-feedback battle on this
+                    # channel. The hook (app.osc.gain_assist, opt-in) may
+                    # trim the preamp -- it only enqueues, so calling it
+                    # from this analysis thread is safe.
+                    if self.on_notch_bank_saturated is not None and channel_state is not None:
+                        self.on_notch_bank_saturated(reported_channel)
                     continue
                 notch_id = bank.add_notch(candidate.frequency_hz)
                 self.diagnostics.log_state_change(

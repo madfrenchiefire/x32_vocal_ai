@@ -501,3 +501,54 @@ def test_meters_loop_broadcasts_via_hook(diagnostics, monkeypatch):
 
     assert updates
     assert updates[0] == {1: -6.0}
+
+
+def test_analyze_block_calls_saturation_hook_when_bank_full(diagnostics):
+    engine = _make_engine(diagnostics)
+    state = AppState()
+    state.channels[9].card_out_slot = 1
+    state.channels[9].ai_enabled = True
+    engine.state = state
+
+    bank = engine.filter_banks[1]
+    bank.max_notches = 1
+    bank.add_notch(500.0)  # bank now full
+
+    saturated: list[int] = []
+    engine.on_notch_bank_saturated = saturated.append
+
+    candidate = FeedbackCandidate(
+        frequency_hz=2000.0,  # far from the existing 500 Hz notch
+        peak_to_average_db=20.0,
+        harmonic_structure_present=False,
+        sustained_growth=True,
+    )
+    engine.detector.analyze.return_value = [candidate]
+
+    block = np.zeros((64, 2), dtype=np.float32)
+    engine._analyze_block(block)
+
+    assert saturated == [9]  # console channel number, not the card slot
+    assert len(bank.active_notches()) == 1  # no notch stacked past the cap
+
+
+def test_analyze_block_no_saturation_hook_when_room_left(diagnostics):
+    engine = _make_engine(diagnostics)
+    state = AppState()
+    state.channels[9].card_out_slot = 1
+    state.channels[9].ai_enabled = True
+    engine.state = state
+
+    saturated: list[int] = []
+    engine.on_notch_bank_saturated = saturated.append
+
+    candidate = FeedbackCandidate(
+        frequency_hz=2000.0,
+        peak_to_average_db=20.0,
+        harmonic_structure_present=False,
+        sustained_growth=True,
+    )
+    engine.detector.analyze.return_value = [candidate]
+    engine._analyze_block(np.zeros((64, 2), dtype=np.float32))
+
+    assert saturated == []

@@ -356,6 +356,24 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   `DiagnosticsLogger.add_listener` — not polled). **Not implemented**: the ML
   confidence threshold slider (inert regardless, since Phase 5's ML classifier
   doesn't exist).
+- **Preamp gain assist** (implemented, `app/osc/gain_assist.py` + `POST
+  /api/gain_assist/toggle` / `/restore` / `GET /status`, "Gain assist"
+  toggle in the Global card): OPT-IN last resort (`AppConfig.
+  gain_assist_enabled`, default False — touching gain changes the
+  engineer's mix). When a channel's notch bank is saturated and the
+  detector still finds new candidates (`AudioEngine.on_notch_bank_saturated`
+  hook, fired from the analysis thread, enqueue-only), a worker thread
+  steps that channel's preamp (`/headamp/NNN/gain`, doc-confirmed) down by
+  `gain_assist_step_db` (default 2 dB), per-channel cooldown, hard-capped
+  at `gain_assist_max_total_db` (default 6 dB) per headamp per session.
+  Every trim is a loud `watchdog` diagnostics event. Headamp resolution:
+  `/-ha/<ch-1>/index` live mapping first (doc-confirmed), falling back to
+  the pre-app source derived from the routing snapshot's IN-block value
+  (Local 1-32 → headamp 0-31, AES50-A → 32-79, AES50-B → 80-127; Card/Aux
+  sources have no preamp → no trim). First trim of each headamp snapshots
+  its original gain; "Restore Gains" puts everything back. Deliberately
+  NOT in the crash watchdog's automatic restore: mid-crash, a mic left a
+  few dB quieter is safer than restoring gain a runaway squeal forced down.
 - **Panic button** (implemented, `app/osc/panic.py` + `POST /api/panic` /
   `/api/panic/restore`, red PANIC/UN-PANIC button in the Global card):
   instantly mutes every app-managed channel (any channel holding a Card slot

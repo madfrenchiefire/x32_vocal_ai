@@ -811,21 +811,25 @@ def test_rta_start_and_stop_manage_streamer(fake_x32, tmp_path, app_state, diagn
     app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc)
     client = app.test_client()
     try:
+        import time
+
+        def _wait_for_source(expected, timeout=2.0):
+            deadline = time.monotonic() + timeout
+            while fake_x32.extra_responses[RTA_SOURCE_ADDRESS] != expected and time.monotonic() < deadline:
+                time.sleep(0.02)
+            return fake_x32.extra_responses[RTA_SOURCE_ADDRESS]
+
         response = client.post("/api/rta/start", json={"channel": 9})
         assert response.status_code == 200
         streamer = app.extensions["rta_streamer"]
         assert streamer.running
-        assert fake_x32.extra_responses[RTA_SOURCE_ADDRESS] == (8,)  # channel 9 pre-EQ
+        # Source write and later restore are UDP sends -- poll, don't race.
+        assert _wait_for_source((8,)) == (8,)  # channel 9 pre-EQ
 
         response = client.post("/api/rta/stop")
         assert response.status_code == 200
         assert not streamer.running
-        # The restore is a UDP send -- give the fake console a moment.
-        import time
-        deadline = time.monotonic() + 1.0
-        while fake_x32.extra_responses[RTA_SOURCE_ADDRESS] != (70,) and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert fake_x32.extra_responses[RTA_SOURCE_ADDRESS] == (70,)  # restored
+        assert _wait_for_source((70,)) == (70,)  # restored
     finally:
         osc.close()
 

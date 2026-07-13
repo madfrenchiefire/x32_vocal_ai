@@ -59,6 +59,16 @@ class AppConfig:
     # --- Routing writes ---
     routing_write_pace_sec: float = 0.02  # delay between paced OSC writes
 
+    # --- Preamp gain assist (app/osc/gain_assist.py) ---
+    # OPT-IN last resort: when a channel's notch bank is saturated (all
+    # notches busy) and detection still fires, step that channel's preamp
+    # gain down. Touching gain changes the engineer's mix, so this stays
+    # off unless deliberately enabled.
+    gain_assist_enabled: bool = False
+    gain_assist_step_db: float = 2.0  # per trim step
+    gain_assist_max_total_db: float = 6.0  # hard cap per headamp per session
+    gain_assist_cooldown_sec: float = 5.0  # min time between trims per channel
+
     # --- Console-side safety scene (app/osc/scene.py) ---
     # Scene slot (0-99) to save the console's pre-app state into before the
     # app's first routing write of a session, recallable from the desk's own

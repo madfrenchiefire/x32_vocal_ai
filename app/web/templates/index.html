@@ -284,6 +284,12 @@
           <button class="btn btn-secondary btn-sm" id="echo-ref-set-btn">Set Reference</button>
         </div>
         <div id="echo-status" class="status"></div>
+        <div class="field">
+          <label for="gain-assist-toggle" title="LAST RESORT, opt-in: if a channel's notch bank is full and feedback is still detected, step its preamp gain down (2 dB steps, 6 dB max, loudly logged).">Gain assist</label>
+          <input type="checkbox" id="gain-assist-toggle">
+          <button class="btn btn-secondary btn-sm" id="gain-assist-restore-btn" title="Put every trimmed preamp back to its pre-trim gain">Restore Gains</button>
+        </div>
+        <div id="gain-assist-status" class="status"></div>
         <div class="field" style="margin-top: 0.6rem;">
           <button class="btn btn-danger" id="panic-btn"
                   title="Instantly mute every app-managed channel on the console. Un-panic restores each channel's previous mute state.">PANIC</button>
@@ -433,6 +439,44 @@
         }
       } catch (err) {
         setStatus("echo-status", `Failed to load echo cancellation state: ${err}`, "error");
+      }
+    }
+
+    el("gain-assist-toggle").addEventListener("change", async () => {
+      const enabled = el("gain-assist-toggle").checked;
+      try {
+        await api("/api/gain_assist/toggle", { method: "POST", body: JSON.stringify({ enabled }) });
+        setStatus("gain-assist-status", enabled
+          ? "Gain assist armed: saturated channels may get preamp trims (watch the event log)."
+          : "Gain assist off.", enabled ? "error" : "success");
+      } catch (err) {
+        setStatus("gain-assist-status", `Toggle failed: ${err}`, "error");
+        el("gain-assist-toggle").checked = !enabled;
+      }
+    });
+
+    el("gain-assist-restore-btn").addEventListener("click", async () => {
+      try {
+        const data = await api("/api/gain_assist/restore", { method: "POST" });
+        setStatus("gain-assist-status", data.restored_headamps.length
+          ? `Restored preamp gain on headamp(s) ${data.restored_headamps.join(", ")}.`
+          : "No trims to restore.", "success");
+      } catch (err) {
+        setStatus("gain-assist-status", `Restore failed: ${err}`, "error");
+      }
+    });
+
+    async function loadGainAssistState() {
+      try {
+        const data = await api("/api/gain_assist/status");
+        el("gain-assist-toggle").checked = Boolean(data.enabled);
+        const trims = Object.entries(data.trims_db || {});
+        if (trims.length) {
+          setStatus("gain-assist-status",
+            "Active trims: " + trims.map(([ha, db]) => `headamp ${ha}: -${db} dB`).join(", "), "error");
+        }
+      } catch (err) {
+        // non-fatal
       }
     }
 
@@ -1195,6 +1239,7 @@
     loadInitialLevels();
     loadEchoState();
     loadPanicState();
+    loadGainAssistState();
   </script>
 </body>
 </html>
