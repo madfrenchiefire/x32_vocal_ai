@@ -33,13 +33,11 @@ from app.osc.connection import OscConnection
 NUM_CHANNELS = 32
 
 # The X32's standard scribble palette, indexed by the raw
-# /ch/NN/config/color int: 8 colors then the same 8 inverted. Order from
-# Maillot's enum tables (github.com/pmaillot/X32-Behringer); the tokens
-# RD/GN/YE/BL/CY additionally appear verbatim in a real scene-file dump.
-# Which specific int the console reports for a given on-screen color has
-# not been independently confirmed yet -- treat a decoded token as
-# likely-correct-by-convention until one channel's color is cross-checked
-# against the desk.
+# /ch/NN/config/color int -- doc-confirmed (X32_OSC.pdf, committed in this
+# repo: "/ch/[01-32]/config/color: enum int [0-15] representing {OFF, RD,
+# GN, YE, BL, MG, CY, WH, OFFi, RDi, GNi, YEi, BLi, MGi, CYi, WHi}").
+# The tokens RD/GN/YE/BL/CY additionally appear verbatim in a real
+# scene-file dump.
 SCRIBBLE_COLORS = (
     "OFF", "RD", "GN", "YE", "BL", "MG", "CY", "WH",
     "OFFi", "RDi", "GNi", "YEi", "BLi", "MGi", "CYi", "WHi",

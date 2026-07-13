@@ -4,7 +4,6 @@ import json
 from unittest.mock import MagicMock
 
 from app.audio.devices import AudioDevice
-from app.audio.echo_cancellation import MAIN_L_USERROUT_OUT_VALUE
 from app.audio.engine import AudioEngine
 from app.audio.filters import NotchFilterBank
 from app.config import AppConfig, load_config
@@ -472,7 +471,16 @@ def test_restore_endpoint_replays_snapshot(fake_x32, tmp_path, app_state, diagno
 # -- echo cancellation --------------------------------------------------------
 
 
+def _patch_main_lr_outputs(fake_x32) -> None:
+    """Factory-default Out 1-16 patch: Main L/R on outputs 15/16."""
+    for n in range(1, addresses.NUM_MAIN_OUTPUTS + 1):
+        fake_x32.extra_responses[addresses.output_src_addr(n)] = (0,)
+    fake_x32.extra_responses[addresses.output_src_addr(15)] = (addresses.OUTPUT_SRC_MAIN_L,)
+    fake_x32.extra_responses[addresses.output_src_addr(16)] = (addresses.OUTPUT_SRC_MAIN_R,)
+
+
 def test_echo_cancellation_toggle_routes_reference(fake_x32, tmp_path, app_state, diagnostics):
+    _patch_main_lr_outputs(fake_x32)
     for addr in addresses.ALL_USERROUT_OUT:
         fake_x32.extra_responses[addr] = (0,)
     osc = _make_osc(fake_x32, diagnostics, app_state)
@@ -484,7 +492,7 @@ def test_echo_cancellation_toggle_routes_reference(fake_x32, tmp_path, app_state
         data = response.get_json()
         assert data["reference_card_channels"] == [1, 2]
         assert config.echo_cancellation_enabled is True
-        assert fake_x32.extra_responses[addresses.userrout_out_addr(1)] == (MAIN_L_USERROUT_OUT_VALUE,)
+        assert fake_x32.extra_responses[addresses.userrout_out_addr(1)] == (addresses.output_userrout_out_value(15),)
     finally:
         osc.close()
 
@@ -506,6 +514,7 @@ def test_echo_cancellation_disable_does_not_require_osc(tmp_path, app_state, dia
 
 
 def test_set_echo_reference_uses_explicit_card_channels(fake_x32, tmp_path, app_state, diagnostics):
+    _patch_main_lr_outputs(fake_x32)
     for addr in addresses.ALL_USERROUT_OUT:
         fake_x32.extra_responses[addr] = (0,)
     osc = _make_osc(fake_x32, diagnostics, app_state)
@@ -516,7 +525,7 @@ def test_set_echo_reference_uses_explicit_card_channels(fake_x32, tmp_path, app_
         assert response.status_code == 200
         assert response.get_json()["reference_card_channels"] == [10, 11]
         assert config.echo_reference_card_channels == (10, 11)
-        assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (MAIN_L_USERROUT_OUT_VALUE,)
+        assert fake_x32.extra_responses[addresses.userrout_out_addr(10)] == (addresses.output_userrout_out_value(15),)
     finally:
         osc.close()
 

@@ -30,20 +30,19 @@ from app.osc import addresses
 from app.osc.connection import OscConnection
 from app.state import AppState
 
-# Raw userrout/out values for "Main L" and "Main R" as a source --
-# confirmed on real hardware (firmware 4.13, 2026-07-07): reading back
-# /config/userrout/out/31 and /32 after patching Main L/R (post-fader)
-# through to those two Card channels showed 183 and 184 respectively --
-# distinct values, not the same value for both (see
-# app.osc.addresses.USERROUT_NAMED_VALUES for how this fits the rest of
-# the flat userrout enumeration). The console's own GUI reaches this via a
-# three-hop patch (a physical Out jack set to Main L/R, then a User Out
-# bank sourced from that Out block, then a Card bank sourced from that
-# User Out bank) -- but the *resulting* per-channel userrout/out value is
-# still this one flat number either way, so auto_route_reference_signal
-# below only ever needs the single direct write below, not that detour.
-MAIN_L_USERROUT_OUT_VALUE = 183
-MAIN_R_USERROUT_OUT_VALUE = 184
+# How the reference reaches a Card channel -- corrected understanding
+# (2026-07-13, X32_OSC.pdf): there is NO direct "Main L/R" value in the
+# userrout/out enum. The values 183/184 read off a real console
+# (2026-07-07) actually mean "Output 15"/"Output 16" (169 + N - 1, see
+# app.osc.addresses.output_userrout_out_value) -- a userrout/out slot taps
+# a *physical output's* signal, and Outputs 15/16 carried Main L/R only
+# because the console's Out 1-16 tab patched them that way
+# (/outputs/main/NN/src = 1 (Main L) / 2 (Main R); that patch is the X32
+# factory default for outputs 15/16, but not guaranteed). So
+# auto_route_reference_signal below must first *discover* which outputs
+# are patched to Main L/R and tap those, rather than blindly writing
+# 183/184 and silently capturing whatever signal outputs 15/16 happen to
+# carry on this particular console.
 
 
 class EchoCancellationError(Exception):
@@ -127,6 +126,44 @@ class EchoCanceller:
         return output.astype(mic_block.dtype, copy=False)
 
 
+def find_main_lr_outputs(
+    osc: OscConnection,
+    correlation_id: str | None = None,
+) -> tuple[int, int]:
+    """Which physical outputs (1-16) are currently patched to Main L and
+    Main R on the console's Out 1-16 tab -- reads all 16
+    /outputs/main/NN/src values and returns the first output sourcing
+    Main L and the first sourcing Main R (the X32 factory default is
+    15/16). Raises EchoCancellationError if either is missing: the app
+    deliberately does NOT repatch a physical output itself -- those XLR
+    jacks may be feeding real speakers, so hijacking one silently is the
+    opposite of gig-safe. The error tells the user exactly what to patch
+    instead."""
+    src_addrs = [addresses.output_src_addr(n) for n in range(1, addresses.NUM_MAIN_OUTPUTS + 1)]
+    results = osc.query_many(src_addrs, correlation_id=correlation_id)
+
+    main_l_output = main_r_output = None
+    for n in range(1, addresses.NUM_MAIN_OUTPUTS + 1):
+        reply = results[addresses.output_src_addr(n)]
+        if reply is None:
+            continue
+        if reply[0] == addresses.OUTPUT_SRC_MAIN_L and main_l_output is None:
+            main_l_output = n
+        elif reply[0] == addresses.OUTPUT_SRC_MAIN_R and main_r_output is None:
+            main_r_output = n
+
+    if main_l_output is None or main_r_output is None:
+        raise EchoCancellationError(
+            "no physical output is patched to "
+            + ("Main L and Main R" if main_l_output is None and main_r_output is None
+               else ("Main L" if main_l_output is None else "Main R"))
+            + " -- on the console: Routing > Out 1-16, set an output pair to Main L / Main R "
+            "(post fader). The echo reference taps a physical output's signal, and the app "
+            "won't repatch an XLR output that may be feeding real speakers."
+        )
+    return (main_l_output, main_r_output)
+
+
 def _free_card_slots(state: AppState, count: int) -> list[int]:
     used = {c.card_out_slot for c in state.channels.values() if c.card_out_slot is not None}
     free = [slot for slot in range(1, addresses.NUM_USERROUT_OUT + 1) if slot not in used]
@@ -146,9 +183,12 @@ def auto_route_reference_signal(
     pace_sec: float = 0.02,
     card_channels: tuple[int, int] | None = None,
 ) -> tuple[int, int]:
-    """Routes the console's Main L/R bus into two Card channels via
+    """Routes the console's Main L/R signal into two Card channels via
     userrout/out, so the audio engine can read those two Card channels
-    back as the echo reference.
+    back as the echo reference. First discovers which physical outputs the
+    console has patched to Main L/R (find_main_lr_outputs -- raises with a
+    patch-it-yourself message if none are), then points the two chosen
+    Card userrout/out slots at those outputs' tap values.
 
     card_channels lets the caller pick explicitly which two Card slots
     carry the reference (the web UI's Console Setup Left/Right port
@@ -174,11 +214,14 @@ def auto_route_reference_signal(
         slot_a, slot_b = _free_card_slots(state, 2)
         config.echo_reference_card_channels = (slot_a, slot_b)
 
-    # slot_a carries Main L, slot_b carries Main R -- these are genuinely
-    # different values (183 vs 184), not the same value written twice, so
-    # the two Card channels actually carry distinct left/right signal
-    # rather than duplicate mono.
-    channel_values = ((slot_a, MAIN_L_USERROUT_OUT_VALUE), (slot_b, MAIN_R_USERROUT_OUT_VALUE))
+    main_l_output, main_r_output = find_main_lr_outputs(osc, correlation_id=correlation_id)
+    left_value = addresses.output_userrout_out_value(main_l_output)
+    right_value = addresses.output_userrout_out_value(main_r_output)
+
+    # slot_a taps the Main-L-carrying output, slot_b the Main-R one --
+    # genuinely different values, so the two Card channels carry distinct
+    # left/right signal rather than duplicate mono.
+    channel_values = ((slot_a, left_value), (slot_b, right_value))
 
     for slot, value in channel_values:
         osc.send(addresses.userrout_out_addr(slot), value, correlation_id=correlation_id)
@@ -202,7 +245,8 @@ def auto_route_reference_signal(
         "echo_reference_routed",
         after={
             "card_channels": [slot_a, slot_b],
-            "userrout_out_values": {"left": MAIN_L_USERROUT_OUT_VALUE, "right": MAIN_R_USERROUT_OUT_VALUE},
+            "main_lr_outputs": [main_l_output, main_r_output],
+            "userrout_out_values": {"left": left_value, "right": right_value},
         },
         correlation_id=correlation_id,
     )

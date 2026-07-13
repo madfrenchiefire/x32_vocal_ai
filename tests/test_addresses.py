@@ -113,7 +113,7 @@ def test_decode_userrout_value_aes50b():
     assert addresses.decode_userrout_value(128) == "AES50-B 48"
 
 
-def test_decode_userrout_value_unset_and_unknown():
-    assert addresses.decode_userrout_value(0) == "UNSET(0)"
+def test_decode_userrout_value_off_and_unknown():
+    assert addresses.decode_userrout_value(0) == "OFF"  # doc-confirmed (X32_OSC.pdf)
     assert addresses.decode_userrout_value(None) is None
     assert addresses.decode_userrout_value(999) == "UNKNOWN(999)"

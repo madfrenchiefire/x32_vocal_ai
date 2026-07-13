@@ -23,20 +23,24 @@ assignment types, un-decoded.
 
 **MIDI-CC value format decoded (2026-07-07)** by matching the sniffed
 strings against a screenshot of the console's own Edit Assigns screen for
-the same state: Encoder 2 = "Midi / Ctrl Chg / Channel 02 / 1" read
-`'MC02001'` and Encoder 3 = "Channel 03 / 2" read `'MC03002'`, giving
+the same state, and since **doc-confirmed** (X32_OSC.pdf, committed in
+this repo -- User ASSIGN Section chapter: buttons/encoders take strings
+like `"Mxyyzzz"`, x = message type `C`/`N`/`P` = Ctrl Chg/Note/Prog Chg
+for "Midi Push" or lowercase `c`/`n` for "Midi Toggle", yy = MIDI channel
+01-16, zzz = value 000-127):
 
     'M' + ('C' push | 'c' toggle) + <MIDI channel, 2 digits, 1-based>
         + <CC number, 3 digits>
 
-with the case of the second letter matching Button 5 ("Midi Push",
-`'MC01000'`) vs Button 6 ("Midi Toggle", `'Mc00000'`).
 :func:`midi_cc_value` constructs these; snapshot/restore still treats
-values as opaque. One observed quirk feeding the always-readback-verify
-rule: two controls whose GUI showed "Channel 01" pushed a channel field of
-`'00'` (probably the console's internal default before the channel
-dropdown is first touched), so a write must be confirmed by readback
-(write_assignment already does) rather than assumed.
+values as opaque (the doc also specifies every non-MIDI assignment type --
+'F' fader, 'P' pan/page, 'S' send, 'X' effect, 'O' mute, 'I' insert, 'R'
+remote, 'D' selected-channel -- none of which this app constructs). One
+observed quirk feeding the always-readback-verify rule: two controls
+whose GUI showed "Channel 01" pushed a channel field of `'00'` (probably
+the console's internal default before the channel dropdown is first
+touched), so a write must be confirmed by readback (write_assignment
+already does) rather than assumed.
 
 Set C is off-limits per CLAUDE.md's core design principle #4 -- VALID_SETS
 only ever contains "A" and "B", and there is no function here that can

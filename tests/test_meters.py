@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.osc.meters import MeterBlobError, decode_meter_blob
+from app.osc.meters import METERS1_COUNT, MeterBlobError, channel_meters, decode_meter_blob
 
 
 def _make_blob(values: list[float]) -> bytes:
@@ -33,6 +33,18 @@ def test_decode_meter_blob_rejects_count_mismatch():
 def test_decode_meter_blob_rejects_tiny_input():
     with pytest.raises(MeterBlobError):
         decode_meter_blob(b"\x01")
+
+
+def test_channel_meters_returns_first_32_slots_of_meters1():
+    values = [i / 100.0 for i in range(METERS1_COUNT)]
+    channels = channel_meters(_make_blob(values))
+    assert len(channels) == 32
+    assert channels == pytest.approx(values[:32])
+
+
+def test_channel_meters_rejects_wrong_blob_size():
+    with pytest.raises(MeterBlobError):
+        channel_meters(_make_blob([0.0] * 49))  # a /meters/2 blob, not /meters/1
 
 
 def test_decode_meter_blob_against_real_capture_if_present():

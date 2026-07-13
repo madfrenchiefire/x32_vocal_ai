@@ -100,21 +100,22 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   pick the two Card ports explicitly — validated against conflicts with any
   provisioned mic channel's `card_out_slot` — and overrides whatever was
   auto-picked or reused from a previous session.
-  **Raw `userrout/out` values for "Main L" and "Main R" as a source — confirmed
-  against real hardware (2026-07-07, firmware 4.13):** `MAIN_L_USERROUT_OUT_VALUE
-  = 183`, `MAIN_R_USERROUT_OUT_VALUE = 184` — two distinct values, not the same
-  value written to both Card channels (the code originally wrote one shared
-  placeholder to both, which would have duplicated mono into both "reference"
-  channels instead of true L/R; fixed alongside this confirmation). Confirmed by
-  patching Main L/R (post-fader) through to two Card channels on a real console
-  and reading `/config/userrout/out/NN` back via
-  `python -m app.tools.diagnose_console`'s passive capture — see
-  `app.osc.addresses.USERROUT_NAMED_VALUES`. The console's own GUI reaches this
-  via a three-hop patch (a physical XLR output set to Main L/R → a User Out bank
-  sourced from that Out block → a Card bank sourced from that User Out bank), but
-  the *resulting* per-channel `userrout/out` value is still this one flat number
-  either way, so `auto_route_reference_signal` only ever needs the direct
-  single-address write below, not that detour.
+  **How the reference actually reaches a Card channel — corrected via
+  X32_OSC.pdf (2026-07-13):** there is NO direct "Main L/R" value in the
+  `userrout/out` enum. The values 183/184 read off a real console (2026-07-07,
+  firmware 4.13) mean **"Output 15"/"Output 16"** (`169 + N - 1`,
+  `app.osc.addresses.output_userrout_out_value`) — a userrout/out slot taps a
+  *physical output's* signal, and Outputs 15/16 carried Main L/R only because
+  the console's Out 1-16 tab patched them that way (`/outputs/main/NN/src` =
+  1/2 = Main L/Main R — the X32 factory default for outputs 15/16, but not
+  guaranteed). `auto_route_reference_signal` therefore first **discovers**
+  which outputs are patched to Main L/R (`find_main_lr_outputs`, reads all 16
+  `/outputs/main/NN/src` values) and taps those; if no output is patched to
+  Main L/R it raises with instructions rather than repatching a physical XLR
+  output itself — those jacks may be feeding real speakers, and hijacking one
+  silently is the opposite of gig-safe. The values are distinct L and R taps,
+  never one value written to both Card channels (an earlier bug would have
+  duplicated mono into both "reference" channels).
 - **Algorithm: NLMS (normalized least-mean-squares) adaptive FIR filter**, one per
   channel with echo cancellation enabled, filter length sized to the room's expected
   reflection tail (start around 200 ms at 48 kHz = ~9600 taps; tune once real rooms
@@ -293,9 +294,8 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   appear in scene dumps), which is why the first version of this feature
   showed no names against a real console) via
   `app.state.AppState.apply_channel_configs`. The color leaf's int→token
-  enum (`app.osc.scribble_strip.SCRIBBLE_COLORS`, 8 colors + 8 inverted, from
-  Maillot's table) is likely-correct-by-convention but not yet cross-checked
-  against the desk for a specific value. This is deliberately
+  enum (`app.osc.scribble_strip.SCRIBBLE_COLORS`, 8 colors + 8 inverted) is
+  doc-confirmed (X32_OSC.pdf: `/ch/NN/config/color` enum int 0-15). This is deliberately
   *not* done synchronously inside `/api/console/connect` (would add several
   seconds to that response) — the web UI calls the new `POST
   /api/channels/refresh_names` itself right after a successful connect
@@ -368,30 +368,35 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
    or unreachable one is skipped rather than fatal.
 
 ## Open items to verify (do not assume)
-- **`python -m app.tools.diagnose_console --console <ip>` is the one-stop tool for
-  confirming everything below against a real console.** It (1) captures every
-  passive value the console will answer right now in one pass (routing snapshot,
-  Set A/B assign-set snapshot, all 32 channels' scribble-strip configs --
-  `app.osc.protocol_discovery.capture_full_state`), then (2) walks through each
-  still-open item that needs a human to change something on the console while
-  the tool watches. Two watching mechanisms, chosen per item: `watch_until_changed`
-  (reads a baseline on *known* addresses, polls until one differs -- used for the
-  Main L/R echo-reference cross-check and the `--watch ADDRESS [ADDRESS ...]`
-  escape hatch), and `sniff_pushed_changes` (+`OscConnection.add_sniffer`), which
-  records **every** message the console pushes via the active `/xremote`
-  subscription regardless of address -- the discovery mechanism for addresses
-  this project doesn't know yet, used for the assign-set step since polling
-  guessed addresses provably can't find them (see below). A sniff step's Ctrl+C
-  stops early but *keeps* what was captured -- never throws away data a human
-  stood at a console to produce. It also attempts a best-effort `/meters` capture
-  (`capture_meters_sample` + `OscConnection.listen()`, which collects every reply
-  on an address over a window instead of stopping at the first one like
-  `query()`/`query_many()`), saving whatever raw bytes come back for offline
-  decoding. Everything lands in one timestamped JSON report under
-  `<log_dir>/protocol_discovery/`, and the tool's final summary says exactly
-  which constant to update with whatever got confirmed that run. `--passive-only`
-  skips every interactive step (useful for a quick capture without standing at
-  the console); each guided step is individually Ctrl+C-skippable.
+- **`X32_OSC.pdf` (committed at the repo root) is Maillot's "Unofficial X32/M32
+  OSC Remote Protocol" v4.09 — the authoritative reference this project's
+  empirical findings are cross-checked against.** Everything it documents that
+  this project relies on has so far matched real-hardware captures exactly
+  (userrout table, userctrl string formats, /meters layouts, scribble color
+  enum). When a new protocol question comes up, check the PDF first, then
+  confirm on hardware where it matters.
+- **`python -m app.tools.diagnose_console --console <ip>` is the one-stop tool
+  for confirming protocol behavior against a real console.** It (1) captures
+  every passive value the console will answer right now in one pass (routing
+  snapshot, Set A/B assign-set snapshot, all 32 channels' scribble-strip
+  configs -- `app.osc.protocol_discovery.capture_full_state`), then (2) offers
+  two interactive discovery mechanisms: `watch_until_changed` (reads a baseline
+  on *known* addresses, polls until one differs -- the `--watch ADDRESS
+  [ADDRESS ...]` escape hatch), and a general-purpose sniff step
+  (`sniff_pushed_changes` + `OscConnection.add_sniffer`), which records
+  **every** message the console pushes via the active `/xremote` subscription
+  regardless of address -- the discovery mechanism for addresses this project
+  doesn't know yet (it's how the assign-set address shape and value format were
+  found after polling guessed addresses provably couldn't). A sniff step's
+  Ctrl+C stops early but *keeps* what was captured -- never throws away data a
+  human stood at a console to produce. It also attempts a best-effort `/meters`
+  capture (`capture_meters_sample` + `OscConnection.listen()`, which collects
+  every reply on an address over a window instead of stopping at the first one
+  like `query()`/`query_many()`), saving whatever raw bytes come back. Everything
+  lands in one timestamped JSON report under `<log_dir>/protocol_discovery/`.
+  `--passive-only` skips every interactive step (useful for a quick capture
+  without standing at the console); each guided step is individually
+  Ctrl+C-skippable.
 - **MIDI-assignment addresses: real shape discovered by sniff (2026-07-07,
   firmware 4.13) — `/config/userctrl/<A|B>/enc/<1-4>`, string values.** The
   originally guessed `/config/ctrl/...` shape got no reply at all on a live
@@ -419,29 +424,29 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   connect-time snapshot. One caution kept in the code: two controls whose
   GUI showed "Channel 01" pushed a channel field of `'00'` (likely the
   console's untouched-default internal value), so writes are always
-  readback-verified rather than assumed. Non-Ctrl-Chg assignment strings
-  (`'S0000'`, `'X000'`, notes, program changes) remain un-decoded —
-  snapshot/restore handles them as opaque values, which is all they need.
-- **`/meters` blob *structure* confirmed on real hardware (2026-07-07, firmware
-  4.13); slot *meaning* still unmapped.** Subscribing with the documented form
-  (send the parent `/meters` address with the blob path as a string argument,
-  `/meters ,s "/meters/1"` — a plain int subscribe sent *to* `/meters/1` gets
-  nothing) streams one blob every ~50 ms for a few seconds. Each blob is
-  `int32 count + count × float32`, both **little-endian** (unlike OSC's own
-  big-endian wire format), floats 0..1: `/meters/1` = 96 values, `/meters/2` =
-  49 values. Decoder: `app.osc.meters.decode_meter_blob` (validated against the
-  committed real captures in `logs/protocol_discovery/`). Slot semantics, from
-  comparing two captures taken ~19 minutes apart: **`/meters/1` slots 0-31 are
-  the 32 live channel input meters** — all 32 show per-blob variance at the
-  analog noise floor (~1.4e-5 ≈ -97 dBFS, different every 50ms blob, in both
-  captures independently), which static parameters can't produce; **slots
-  32-95 are NOT audio meters** — bit-identical constants within and across
-  both captures, at round dB values (-21/-10/-20/0 dB), so whatever the
-  console packs there doesn't move with audio and must not be read as levels.
-  A final 1:1 index→channel check (signal on exactly one known channel) is
-  still worth doing before trusting a *specific* index. The app's own UI
-  meters don't depend on this either way (they're computed from the app's
-  captured audio, see "1. Audio engine").
+  readback-verified rather than assumed. The whole format is now also
+  **doc-confirmed** (X32_OSC.pdf, User ASSIGN Section chapter), including every
+  non-MIDI assignment type (`'F'` fader, `'S'` send, `'X'` effect, `'O'` mute,
+  `'I'` insert, `'R'` remote, `'D'` selected-channel, `'P'` pan/page-jump) —
+  the app never constructs those; snapshot/restore handles them as opaque
+  values, which is all they need.
+- **`/meters` blobs: structure confirmed on real hardware (2026-07-07, firmware
+  4.13), slot layouts doc-confirmed (X32_OSC.pdf) and consistent with the
+  captures.** Subscribing with the documented form (send the parent `/meters`
+  address with the blob path as a string argument, `/meters ,s "/meters/1"` —
+  a plain int subscribe sent *to* `/meters/1` gets nothing) streams one blob
+  every ~50 ms for ~10 s. Each blob is `int32 count + count × float32`, both
+  **little-endian** (unlike OSC's own big-endian wire format), floats 0..1.
+  Layouts: `/meters/1` (96) = 32 channel input meters + 32 gate gain-reductions
+  + 32 dynamics gain-reductions; `/meters/2` (49) = 16 bus + 6 matrix + 2 main
+  LR + 1 mono, then the same 24 again as dynamics gain-reductions. The two real
+  captures match: channel slots 0-31 jitter at the analog noise floor while
+  every gain-reduction slot sits constant at unity/round-dB values with no
+  signal. Decoder + layout constants: `app.osc.meters` (`decode_meter_blob`,
+  `channel_meters`, `METERS1_*`/`METERS2_*` slices), validated against the
+  committed captures in `logs/protocol_discovery/`. The app's own UI meters
+  don't depend on this either way (they're computed from the app's captured
+  audio, see "1. Audio engine").
 - Achievable ASIO buffer size / measured round-trip latency on the target PC.
 - **Address shapes for userrout and block-level routing — confirmed 2026-07-06**
   from two sources: (1) a real console scene (`.scn`) file dump, and (2)
@@ -534,27 +539,19 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   block-routing tables). Implemented as
   `app.osc.addresses.decode_userrout_value()` /
   `RoutingSnapshot.decode_userrout_in()` / `.decode_userrout_out()`.
-  Every untouched channel across three consoles now reads `0`; decoded as
-  `"UNSET(0)"` rather than assumed to mean "off" since that specific
-  meaning hasn't been separately confirmed. What lies beyond index 160
-  (more AES50 sends, USB, etc.) is still unknown, except for two individual
-  values confirmed below.
-- **Main L/Main R `userrout/out` values confirmed (2026-07-07, real hardware,
-  firmware 4.13) — 183 and 184, not one shared value.** Patched Main L/R
-  (post-fader) through to two Card channels on a real console (via a
-  three-hop GUI patch: a physical XLR output set to Main L/R → a User Out
-  bank sourced from that Out block → a Card bank sourced from that User Out
-  bank) and read `/config/userrout/out/NN` back for those two Card channels:
-  `183` and `184` respectively. This also surfaced a real bug: the code's
-  original `auto_route_reference_signal` wrote one single guessed placeholder
-  value to *both* Card channels, which would have duplicated mono into both
-  "reference" channels instead of true L/R — fixed alongside this
-  confirmation (`app.audio.echo_cancellation.MAIN_L_USERROUT_OUT_VALUE` /
-  `MAIN_R_USERROUT_OUT_VALUE`, `app.osc.addresses.USERROUT_NAMED_VALUES`).
-  What occupies 161-182 (presumably Bus/MixBus then Matrix, by the same
-  one-past-the-previous-range pattern as every other family here — see the
-  comment above `USERROUT_NAMED_VALUES`) is inferred by arithmetic, not
-  independently confirmed; only 183/184 themselves are.
+  **The full table is now doc-confirmed** (X32_OSC.pdf, committed in this
+  repo): `0` = OFF (previously decoded as `"UNSET(0)"` pending confirmation),
+  then past Card: 161-166 Aux In 1-6, 167/168 TB Internal/External, 169-184
+  **Outputs 1-16**, 185-200 P16 1-16, 201-206 Aux Out 1-6, 207/208
+  Monitor L/R (userrout/out accepts 0-208; userrout/in only 0-168). This
+  corrected an earlier misreading: the values `183`/`184` read off a real
+  console (2026-07-07) with Main L/R patched through were labeled "Main L/R"
+  but actually mean "Output 15/16" — a userrout/out slot taps a *physical
+  output's* signal, and it carried Main L/R only because the Out 1-16 tab
+  patched it that way (factory default). See "1b. Echo cancellation" for how
+  `auto_route_reference_signal` now discovers the Main-L/R-carrying outputs
+  (`/outputs/main/NN/src`, doc-confirmed enum: 0=OFF, 1=Main L, 2=Main R, …)
+  instead of hardcoding 183/184.
 
 ## Diagnostics event schema
 

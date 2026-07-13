@@ -127,7 +127,24 @@ def test_decode_userrout_in_and_out():
     assert decoded_in[0] == "Local Analog 1"
     assert decoded_in[1] == "AES50-A 2"
     assert decoded_in[2] == "Card 3"
-    assert decoded_in[3] == "UNSET(0)"
+    assert decoded_in[3] == "OFF"  # 0 = OFF, doc-confirmed (X32_OSC.pdf)
 
     decoded_out = snapshot.decode_userrout_out()
     assert all(v is None for v in decoded_out)
+
+
+def test_decode_userrout_full_table_families():
+    # Families beyond the empirically confirmed four, from X32_OSC.pdf's
+    # userrout/out table.
+    assert addresses.decode_userrout_value(161) == "Aux In 1"
+    assert addresses.decode_userrout_value(167) == "TB Internal"
+    assert addresses.decode_userrout_value(168) == "TB External"
+    assert addresses.decode_userrout_value(169) == "Output 1"
+    assert addresses.decode_userrout_value(183) == "Output 15"
+    assert addresses.decode_userrout_value(184) == "Output 16"
+    assert addresses.decode_userrout_value(185) == "P16 1"
+    assert addresses.decode_userrout_value(201) == "Aux Out 1"
+    assert addresses.decode_userrout_value(207) == "Monitor L"
+    assert addresses.decode_userrout_value(208) == "Monitor R"
+    assert addresses.decode_userrout_value(209) == "UNKNOWN(209)"
+    assert addresses.output_userrout_out_value(15) == 183

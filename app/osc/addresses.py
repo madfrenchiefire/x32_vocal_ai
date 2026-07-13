@@ -59,66 +59,87 @@ def userrout_out_addr(channel: int) -> str:
 ALL_USERROUT_IN = [userrout_in_addr(ch) for ch in range(1, NUM_USERROUT_IN + 1)]
 ALL_USERROUT_OUT = [userrout_out_addr(ch) for ch in range(1, NUM_USERROUT_OUT + 1)]
 
-# --- userrout value semantics: confirmed for all four source families -----
+# --- userrout value semantics ---------------------------------------------
 #
-# Real-hardware tests, 2026-07-06, same console (firmware 4.13), channels
-# 1-8 set to "User In" (rtgin index 20) then individually assigned via the
-# console's User In screen:
-#   round 1: channels 1-8 -> Card 1-8 (1:1)      => userrout/in read 129-136
-#   round 2: channel 1 -> Local Analog In 1      => userrout/in[0] read 1
-#            channel 2 -> AES50-A In 2           => userrout/in[1] read 34
-#            channels 3-8 unchanged (still Card) => userrout/in[2:8] read 131-136
-#   round 3: channel 3 -> AES50-B In 3           => userrout/in[2] read 83
-#            channel 4 -> AES50-B In 4           => userrout/in[3] read 84
-# All four source families match a single flat, 1-indexed enumeration:
-#   value = range_start + (channel_number - 1)
-# with ranges in the same source order already confirmed in the
-# block-routing enum tables (AN, then A/AES50-A, then B/AES50-B, then
-# CARD).
+# The four physical-source ranges were first confirmed against real
+# hardware (2026-07-06, firmware 4.13: Local Analog In 1 read 1, AES50-A
+# In 2 read 34, AES50-B In 3/4 read 83/84, Card 1-8 read 129-136), then
+# the FULL table below was taken from Maillot's "Unofficial X32/M32 OSC
+# Remote Protocol" doc v4.09 (committed in this repo as X32_OSC.pdf,
+# /config/userrout/out section) -- which exactly matches every empirical
+# value, including 0 = OFF (previously decoded as "UNSET(0)" pending
+# confirmation) and 183/184 (read off a real console with Main L/R patched
+# through Outputs 15/16 -- the doc shows those values mean "Output 15/16",
+# i.e. the userrout taps the *physical output* signal, and it carried
+# Main L/R only because the Out 1-16 tab patched it that way; see
+# app.audio.echo_cancellation for why that distinction is load-bearing).
+#
+# userrout/out accepts the whole table (0-208); userrout/in only 0-168
+# (everything through TB External).
 USERROUT_SOURCE_RANGES: list[tuple[int, int, str]] = [
     (1, 32, "Local Analog"),
     (33, 80, "AES50-A"),
     (81, 128, "AES50-B"),
     (129, 160, "Card"),
+    (161, 166, "Aux In"),
+    (169, 184, "Output"),
+    (185, 200, "P16"),
+    (201, 206, "Aux Out"),
 ]
 
-# Individual values confirmed beyond the four physical-source ranges above
-# (real hardware, firmware 4.13, 2026-07-07 -- see
-# app.audio.echo_cancellation's MAIN_L_USERROUT_OUT_VALUE/
-# MAIN_R_USERROUT_OUT_VALUE). The flat userrout enumeration continues past
-# Card (129-160) through at least one more family before reaching these --
-# almost certainly Bus/MixBus (16-wide) and Matrix (6-wide), by the same
-# one-past-the-previous-range pattern every other family here follows
-# (161-176 Bus, 177-182 Matrix would put Main L/R at 183/184 exactly as
-# observed) -- but that arithmetic is inferred, not independently
-# confirmed, so only the two values actually read back are recorded here.
 USERROUT_NAMED_VALUES: dict[int, str] = {
-    183: "Main L",
-    184: "Main R",
+    0: "OFF",
+    167: "TB Internal",
+    168: "TB External",
+    207: "Monitor L",
+    208: "Monitor R",
 }
+
+# userrout/out value for physical Output N (1-16): 169 + (N - 1).
+OUTPUT_USERROUT_OUT_BASE = 169
+
+
+def output_userrout_out_value(output_number: int) -> int:
+    """userrout/out raw value that taps physical Output N (1-16)."""
+    if not 1 <= output_number <= 16:
+        raise ValueError(f"output_number must be 1-16, got {output_number}")
+    return OUTPUT_USERROUT_OUT_BASE + output_number - 1
 
 
 def decode_userrout_value(value: int | None) -> str | None:
     """Decode a raw userrout/in or userrout/out integer into a
-    "<source> <channel>" string, e.g. 34 -> "AES50-A 2". Confirmed against
-    real hardware for all four source families (see comment above), plus
-    the individually confirmed named values above.
-    Returns None if value is None. Every channel/console seen so far
-    reports 0 for "not yet assigned via User Routing" -- not confirmed to
-    mean anything more specific than that (e.g. distinct from an explicit
-    "off"), so it's labeled accordingly rather than silently mapped to a
-    source. Anything else outside the known ranges is reported as
-    unknown, not guessed."""
+    "<source> <channel>" string, e.g. 34 -> "AES50-A 2", 183 ->
+    "Output 15", 0 -> "OFF". Table above (empirically confirmed ranges +
+    Maillot doc for the rest). Returns None if value is None; anything
+    outside the table is reported as unknown, not guessed."""
     if value is None:
         return None
-    if value == 0:
-        return "UNSET(0)"
+    if value in USERROUT_NAMED_VALUES:
+        return USERROUT_NAMED_VALUES[value]
     for start, end, label in USERROUT_SOURCE_RANGES:
         if start <= value <= end:
             return f"{label} {value - start + 1}"
-    if value in USERROUT_NAMED_VALUES:
-        return USERROUT_NAMED_VALUES[value]
     return f"UNKNOWN({value})"
+
+# --- physical output patch (/outputs/main, from X32_OSC.pdf) ---------------
+#
+# The Out 1-16 tab: each physical output's source and tap point.
+# /outputs/main/NN/src is int 0-76: {OFF, Main L, Main R, M/C,
+# MixBus 01-16, Matrix 1-6, DirectOut Ch 01-32, DirectOut Aux 1-8,
+# DirectOut FX 1L-4R, Monitor L, Monitor R, Talkback};
+# /outputs/main/NN/pos is int 0-8: {IN/LC, IN/LC+M, <-EQ, <-EQ+M, EQ->,
+# EQ->+M, PRE, PRE+M, POST}.
+NUM_MAIN_OUTPUTS = 16
+OUTPUT_SRC_MAIN_L = 1
+OUTPUT_SRC_MAIN_R = 2
+OUTPUT_POS_POST_FADER = 8
+
+
+def output_src_addr(output_number: int) -> str:
+    if not 1 <= output_number <= NUM_MAIN_OUTPUTS:
+        raise ValueError(f"output_number must be 1-{NUM_MAIN_OUTPUTS}, got {output_number}")
+    return f"/outputs/main/{output_number:02d}/src"
+
 
 # --- userrout: bulk (scene-dump form, untested for live bare-query reply) -
 

@@ -86,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Snapshot saved: {snapshot_path}")
 
         decoded_in = snapshot.decode_userrout_in()
-        assigned_in = [(ch, tok) for ch, tok in enumerate(decoded_in, start=1) if tok != "UNSET(0)"]
+        assigned_in = [(ch, tok) for ch, tok in enumerate(decoded_in, start=1) if tok != "OFF"]
         if assigned_in:
             print("User In channels currently assigned:")
             for ch, tok in assigned_in:

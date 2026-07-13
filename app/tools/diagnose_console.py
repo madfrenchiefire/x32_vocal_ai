@@ -30,10 +30,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.audio.echo_cancellation import MAIN_L_USERROUT_OUT_VALUE, MAIN_R_USERROUT_OUT_VALUE
 from app.config import load_config
 from app.diagnostics.logger import DiagnosticsLogger
-from app.osc import addresses
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.protocol_discovery import (
     capture_full_state,
@@ -206,33 +204,14 @@ def main(argv: list[str] | None = None) -> int:
         print("  done.")
 
         if not args.passive_only:
-            report["main_lr_reference_watch"] = _prompt_and_watch(
-                osc, list(addresses.ALL_USERROUT_OUT), diagnostics, correlation_id,
-                "Main L/R echo-cancellation reference value",
-                (
-                    "Already confirmed on one console (firmware 4.13): Main L=183, Main R=184 "
-                    f"(app.audio.echo_cancellation.MAIN_L_USERROUT_OUT_VALUE={MAIN_L_USERROUT_OUT_VALUE}, "
-                    f"MAIN_R_USERROUT_OUT_VALUE={MAIN_R_USERROUT_OUT_VALUE}). This step cross-checks it on "
-                    "*your* console: on the console, patch Main L/R into any free User Out slot (e.g.\n"
-                    "Setup > Routing > Out, set a physical output to Main L/R, then Setup > Routing > User\n"
-                    "Out, source that User Out block from the matching Out block) and this will report\n"
-                    "whatever raw value results."
-                ),
-                args.watch_timeout,
-            )
-
-            report["assign_set_sniff"] = _prompt_and_sniff(
+            report["push_sniff"] = _prompt_and_sniff(
                 osc, diagnostics, correlation_id,
-                "MIDI assign-set (Set A/B) value-format discovery",
+                "Console-push address discovery",
                 (
-                    "Encoder address shape is already confirmed (/config/userctrl/A/enc/N, string\n"
-                    "values like 'MC01000'). Two things still need pinning down -- do either or both\n"
-                    "while this records:\n"
-                    "  1. BUTTON numbering: change a Set A/B *button* assignment (expected to push\n"
-                    "     /config/userctrl/A/btn/5..12 -- inferred, not yet seen).\n"
-                    "  2. VALUE format digits: assign an encoder to a MIDI CC with a *known* CC\n"
-                    "     number and MIDI channel (e.g. CC 7, channel 16), so the resulting string\n"
-                    "     reveals which digits mean what."
+                    "General-purpose discovery: change anything on the console whose OSC address or\n"
+                    "value format this project doesn't know yet, and every message the console pushes\n"
+                    "is recorded verbatim -- this is how the assign-set addresses and value format\n"
+                    "were found. Nothing specific pending right now; skip with Ctrl+C if not needed."
                 ),
                 args.watch_timeout,
             )
@@ -255,27 +234,15 @@ def main(argv: list[str] | None = None) -> int:
 
         print("\n=== Summary ===")
         printed_something = False
-        for addr, diff in (report.get("main_lr_reference_watch") or {}).items():
-            print(
-                f"Main L/R reference: {addr} = {diff['after']} -- if this doesn't match "
-                f"MAIN_L_USERROUT_OUT_VALUE={MAIN_L_USERROUT_OUT_VALUE}/"
-                f"MAIN_R_USERROUT_OUT_VALUE={MAIN_R_USERROUT_OUT_VALUE} in app/audio/echo_cancellation.py, "
-                "this console/firmware may differ -- worth a second look."
-            )
-            printed_something = True
         # A real console pushes the same address repeatedly while a control
         # is being adjusted -- summarize each distinct address+value once.
         seen: set = set()
-        for pushed in (report.get("assign_set_sniff") or []):
+        for pushed in (report.get("push_sniff") or []):
             key = (pushed["address"], tuple(pushed["args"]))
             if key in seen:
                 continue
             seen.add(key)
-            print(
-                f"MIDI assign-set: console pushed {pushed['address']} = {pushed['args']!r} -- "
-                "this is the real address+format; update app.osc.assign_set's address shape "
-                "to match, then wire app.midi.service._provision_slot"
-            )
+            print(f"Console pushed: {pushed['address']} = {pushed['args']!r}")
             printed_something = True
         if not args.passive_only and not printed_something:
             print("No new protocol values confirmed this run -- rerun and make the console change during the watch window.")
