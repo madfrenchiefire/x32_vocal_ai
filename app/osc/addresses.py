@@ -98,6 +98,21 @@ USERROUT_NAMED_VALUES: dict[int, str] = {
 # userrout/out value for physical Output N (1-16): 169 + (N - 1).
 OUTPUT_USERROUT_OUT_BASE = 169
 
+# userrout/out value for "Card In N" (N = 1-32): the signal arriving AT the
+# console FROM the card -- i.e. whatever the app itself is playing out on
+# card channel N. Tapping it from a User Out slot loops the app's own
+# output straight back toward the card, entirely inside the console's
+# digital routing (used by app.audio.latency for the cable-free round-trip
+# measurement). Same 129-160 range as the Card block in
+# USERROUT_SOURCE_RANGES.
+CARD_IN_USERROUT_OUT_BASE = 129
+
+
+def card_in_userrout_out_value(card_channel: int) -> int:
+    if not 1 <= card_channel <= 32:
+        raise ValueError(f"card_channel must be 1-32, got {card_channel}")
+    return CARD_IN_USERROUT_OUT_BASE + card_channel - 1
+
 
 def output_userrout_out_value(output_number: int) -> int:
     """userrout/out raw value that taps physical Output N (1-16)."""
@@ -336,6 +351,27 @@ def user_in_block_value(channel: int) -> int:
     if not 1 <= channel <= NUM_USERROUT_IN:
         raise ValueError(f"channel must be 1-{NUM_USERROUT_IN}, got {channel}")
     return USER_IN_BASE_VALUE + (channel - 1) // 8
+
+
+USER_OUT_BANK_BASE_VALUE = 26  # rtaea index of "User Out 1-8" -- confirmed on hardware
+
+
+def card_block_addr_for_slot(card_slot: int) -> str:
+    """The /config/routing/CARD block address containing this Card slot."""
+    if not 1 <= card_slot <= 32:
+        raise ValueError(f"card_slot must be 1-32, got {card_slot}")
+    return ROUTING_CARD_BLOCKS[(card_slot - 1) // 8]
+
+
+def user_out_card_block_value(card_slot: int) -> int:
+    """Raw rtaea value that sets a Card slot's containing 8-channel block
+    to pull from the User Out bank matching that slot's own position (e.g.
+    slot 12 -> block covering 9-16 -> "User Out 9-16" -> 27). Value 26
+    ("User Out 1-8") is confirmed on hardware; the following banks follow
+    the same one-per-bank pattern as every other User bank family."""
+    if not 1 <= card_slot <= 32:
+        raise ValueError(f"card_slot must be 1-32, got {card_slot}")
+    return USER_OUT_BANK_BASE_VALUE + (card_slot - 1) // 8
 
 
 def equivalent_userrout_in_value(rtgin_block_value: int, channel: int) -> int | None:

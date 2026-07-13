@@ -186,12 +186,14 @@ class AudioEngine:
         return dict(self._levels)
 
     def measure_round_trip_latency(self) -> float:
-        """Loopback click test per CLAUDE.md's Phase 1 plumbing step --
-        needs a physical loopback cable from an output to an input on the
-        configured device and must run on the target PC; not something
-        this test suite can exercise."""
+        """Implemented in app.audio.latency (no loopback cable needed --
+        the console's own routing loops the app's output back digitally);
+        run `python -m app.tools.measure_latency --console <ip>` on the
+        target PC. Not a method here because the measurement needs an OSC
+        connection and exclusive use of the audio device, neither of which
+        the running engine has to give."""
         raise NotImplementedError(
-            "requires a physical loopback cable and the configured audio device -- run on the target PC"
+            "use `python -m app.tools.measure_latency --console <ip>` (app.audio.latency) on the target PC"
         )
 
     def _audio_callback(self, indata: np.ndarray, outdata: np.ndarray, frames: int, time_info, status) -> None:

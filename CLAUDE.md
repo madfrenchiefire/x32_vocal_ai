@@ -358,10 +358,19 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 
 ## Build phases
 1. **Plumbing**: ASIO passthrough Card 1–4 → app → Card 1–4, latency measurement.
-   `measure_round_trip_latency()` is implemented as a documented
-   `NotImplementedError` (needs a physical loopback cable + the target PC;
-   not something a test suite can exercise) — everything else in this phase
-   (device enumeration/selection) is built.
+   **Latency measurement is implemented cable-free** (`app/audio/latency.py`,
+   `python -m app.tools.measure_latency --console <ip>`): a User Out slot can
+   tap "Card In N" (userrout/out 129-160, doc-confirmed) — the signal the app
+   itself is playing out — so the console's own routing loops the app's output
+   digitally back to its input; the tool snapshots/restores the two routing
+   values it touches, plays a fixed-seed noise click, finds it by
+   cross-correlation (with a peak-vs-mean guard so silence/noise raises
+   instead of returning garbage), and reports samples + ms. The figure is the
+   full USB round trip but excludes AD/DA converter passes (~1 ms combined on
+   a real mic-to-PA path), since the loop never goes analog. Still needs a
+   run on the target PC with the ASIO device configured to get the actual
+   number; the audio I/O boundary (`run_playrec`) is injectable, which is how
+   the test suite exercises everything but the hardware.
 2. **OSC + MIDI control service** — done: connect, snapshot, apply/restore
    routing, per-channel bypass, Set A/B slot lifecycle, MIDI listener,
    scribble-strip feedback, and (as of the userctrl address/value
