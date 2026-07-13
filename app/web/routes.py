@@ -19,6 +19,7 @@ from app.config import save_config
 from app.diagnostics.export import build_debug_bundle
 from app.midi import devices as midi_devices
 from app.osc.assign_set import snapshot_assign_sets
+from app.osc.channel_eq import ChannelEqError, commit_notches_to_console_eq, restore_console_eq
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.discovery import discover_consoles
 from app.osc.routing_apply import RoutingApplyError, apply_routing, bypass_channel, restore_snapshot
@@ -50,7 +51,9 @@ def _snapshot_or_error(state):
 
 
 def _channel_dict(state, channel: int) -> dict:
-    return dataclasses.asdict(state.channels[channel])
+    d = dataclasses.asdict(state.channels[channel])
+    d["has_console_eq_snapshot"] = channel in state.console_eq_snapshots
+    return d
 
 
 # -- device setup ------------------------------------------------------------
@@ -322,6 +325,65 @@ def toggle_channel_echo_cancellation(channel: int):
         after={"channel": channel, "enabled": enabled},
     )
     return jsonify(channel=_channel_dict(state, channel))
+
+
+@bp.route("/api/channels/<int:channel>/eq/commit", methods=["POST"])
+def commit_channel_eq(channel: int):
+    """Burn the channel's active app notches into the console's own 4-band
+    EQ (app.osc.channel_eq), so the ring-out result persists with the app
+    out of the audio path. Snapshots the console EQ first; the snapshot is
+    kept for /eq/restore even if the commit partially fails."""
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    audio_engine = current_app.extensions.get("audio_engine")
+    if channel not in state.channels:
+        return jsonify(error=f"channel {channel} out of range"), 404
+    osc, error = _osc_or_error()
+    if error:
+        return error
+
+    card_slot = state.channels[channel].card_out_slot
+    bank = audio_engine.filter_banks.get(card_slot) if (audio_engine is not None and card_slot is not None) else None
+    notches = bank.active_notches() if bank is not None else []
+    if not notches:
+        return jsonify(error="channel has no active notches to commit"), 400
+
+    correlation_id = diagnostics.log_user_action(
+        "commit_console_eq", {"channel": channel, "notch_count": len(notches)}
+    )
+    try:
+        result = commit_notches_to_console_eq(osc, diagnostics, channel, notches, correlation_id=correlation_id)
+    except ChannelEqError as exc:
+        partial_snapshot = getattr(exc, "snapshot", None)
+        if partial_snapshot is not None:
+            state.set_console_eq_snapshot(channel, partial_snapshot)
+        return jsonify(
+            error=str(exc),
+            restore_available=partial_snapshot is not None,
+        ), 500
+
+    state.set_console_eq_snapshot(channel, result["snapshot"])
+    return jsonify(written=result["written"], channel=_channel_dict(state, channel))
+
+
+@bp.route("/api/channels/<int:channel>/eq/restore", methods=["POST"])
+def restore_channel_eq(channel: int):
+    """Put the channel's console EQ back exactly as it was before the last
+    /eq/commit for it."""
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    if channel not in state.channels:
+        return jsonify(error=f"channel {channel} out of range"), 404
+    snapshot = state.console_eq_snapshots.get(channel)
+    if snapshot is None:
+        return jsonify(error="no console EQ snapshot for this channel -- nothing to restore"), 400
+    osc, error = _osc_or_error()
+    if error:
+        return error
+
+    correlation_id = diagnostics.log_user_action("restore_console_eq", {"channel": channel})
+    restore_console_eq(osc, diagnostics, channel, snapshot, correlation_id=correlation_id)
+    return jsonify(restored=True, channel=_channel_dict(state, channel))
 
 
 @bp.route("/api/channels/<int:channel>/settings", methods=["POST"])

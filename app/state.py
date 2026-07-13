@@ -71,6 +71,11 @@ class AppState:
         # been read -- the crash watchdog restores this alongside routing
         # (app.watchdog.Watchdog's assign_set_snapshot_provider).
         self.assign_set_snapshot: dict[str, tuple | None] | None = None
+        # Per-channel console EQ state captured just before the app wrote
+        # notches into that channel's console EQ (app.osc.channel_eq).
+        # Deliberately NOT restored by the crash watchdog: a committed EQ
+        # is meant to outlive the app; restoring it is its own user action.
+        self.console_eq_snapshots: dict[int, dict] = {}
         self.channels: dict[int, ChannelState] = {i: ChannelState(index=i) for i in range(1, 33)}
 
     def update_connection(self, **changes: Any) -> None:
@@ -105,6 +110,10 @@ class AppState:
                 if color is not None:
                     self.channels[channel].scribble_color = color
 
+    def set_console_eq_snapshot(self, channel: int, snapshot: dict) -> None:
+        with self._lock:
+            self.console_eq_snapshots[channel] = snapshot
+
     def summary(self) -> dict:
         """Plain-dict snapshot of current state, safe to serialize.
 
@@ -117,5 +126,6 @@ class AppState:
                 "snapshot_history": list(self.snapshot_history),
                 "has_current_snapshot": self.current_snapshot is not None,
                 "has_assign_set_snapshot": self.assign_set_snapshot is not None,
+                "console_eq_snapshot_channels": sorted(self.console_eq_snapshots),
                 "channels": {i: vars(c).copy() for i, c in self.channels.items()},
             }

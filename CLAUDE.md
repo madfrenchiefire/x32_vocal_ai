@@ -306,6 +306,23 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   −18 dB), Q/width all persist to `ChannelState` and, if a live `NotchFilterBank`
   is wired into the running `AudioEngine`, take effect immediately. "Deploy
   speed" from the original spec has no concrete field yet — not implemented.
+- **Commit notches to the console's own EQ** (implemented, `app/osc/channel_eq.py`
+  + `POST /api/channels/<n>/eq/commit` / `/eq/restore`, "EQ→Desk" / "EQ Undo"
+  buttons in the routing grid): writes up to 4 of the channel's deepest active
+  app notches into the channel's console 4-band parametric EQ
+  (`/ch/NN/eq/[1-4]/{type,f,g,q}` + `/eq/on`, all doc-confirmed in X32_OSC.pdf),
+  so a ring-out's result persists with the PC fully out of the audio path.
+  Details that matter: X32 OSC floats are **normalized 0.0-1.0** over each
+  parameter's documented range (freq logf 20-20k/201 steps, gain linf ±15dB/
+  0.25 steps, Q logf 10→0.3/72 steps — note Q's scale is inverted), conversions
+  in `channel_eq.py`; console gain floors at −15 dB so deeper app notches are
+  clamped (reported per band in the response); readback verification uses
+  per-parameter step-grid tolerances since the console quantizes; the channel's
+  full pre-commit EQ state is snapshotted first
+  (`AppState.console_eq_snapshots`) and restorable via `/eq/restore` —
+  deliberately NOT part of the crash watchdog's automatic restore, since a
+  committed EQ is *meant* to outlive the app; a partially-failed commit still
+  keeps the snapshot so restore stays available.
 - **Modes**: **Ring-out/setup** vs **Live** are a per-channel `ChannelState.mode`
   field, selectable in the routing grid and persisted, and now a real behavioral
   difference in `app.audio.engine._analyze_block`: ring-out mode never releases

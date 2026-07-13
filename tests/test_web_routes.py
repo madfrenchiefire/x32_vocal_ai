@@ -647,3 +647,87 @@ def test_channel_meters_broadcast_over_websocket(tmp_path, app_state, diagnostic
     received = test_client.get_received()
     # Socket.IO serializes dict keys to strings (JSON has no int keys).
     assert any(msg["name"] == "channel_meters" and msg["args"][0] == {"1": -9.0} for msg in received)
+
+
+# -- console EQ commit/restore -------------------------------------------------
+
+
+def _register_default_console_eq(fake_x32, channel: int) -> None:
+    from app.osc.channel_eq import eq_band_addr, eq_on_addr
+
+    fake_x32.extra_responses[eq_on_addr(channel)] = (0,)
+    for band in range(1, 5):
+        fake_x32.extra_responses[eq_band_addr(channel, band, "type")] = (2,)
+        for param in ("f", "g", "q"):
+            fake_x32.extra_responses[eq_band_addr(channel, band, param)] = (0.5,)
+
+
+def test_commit_channel_eq_writes_console_and_stores_snapshot(fake_x32, tmp_path, app_state, diagnostics):
+    from app.osc.channel_eq import eq_on_addr
+
+    _register_default_console_eq(fake_x32, 9)
+    bank = NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)
+    bank.add_notch(1200.0)
+    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={3: bank}, detector=MagicMock())
+    app_state.channels[9].card_out_slot = 3  # channel 9 lives on Card slot 3
+
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc, audio_engine=engine)
+    client = app.test_client()
+    try:
+        response = client.post("/api/channels/9/eq/commit")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["written"][0]["frequency_hz"] == 1200.0
+        assert data["channel"]["has_console_eq_snapshot"] is True
+        assert fake_x32.extra_responses[eq_on_addr(9)] == (1,)
+        assert 9 in app_state.console_eq_snapshots
+    finally:
+        osc.close()
+
+
+def test_commit_channel_eq_without_notches_400s(fake_x32, tmp_path, app_state, diagnostics):
+    engine = AudioEngine(
+        config=AppConfig(), diagnostics=diagnostics,
+        filter_banks={3: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)},
+        detector=MagicMock(),
+    )
+    app_state.channels[9].card_out_slot = 3
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc, audio_engine=engine)
+    client = app.test_client()
+    try:
+        response = client.post("/api/channels/9/eq/commit")
+        assert response.status_code == 400
+    finally:
+        osc.close()
+
+
+def test_restore_channel_eq_replays_snapshot(fake_x32, tmp_path, app_state, diagnostics):
+    from app.osc.channel_eq import eq_on_addr
+
+    _register_default_console_eq(fake_x32, 9)
+    bank = NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)
+    bank.add_notch(1200.0)
+    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={3: bank}, detector=MagicMock())
+    app_state.channels[9].card_out_slot = 3
+
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc, audio_engine=engine)
+    client = app.test_client()
+    try:
+        assert client.post("/api/channels/9/eq/commit").status_code == 200
+        assert fake_x32.extra_responses[eq_on_addr(9)] == (1,)
+
+        response = client.post("/api/channels/9/eq/restore")
+        assert response.status_code == 200
+        assert fake_x32.extra_responses[eq_on_addr(9)] == (0,)
+    finally:
+        osc.close()
+
+
+def test_restore_channel_eq_without_snapshot_400s(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post("/api/channels/9/eq/restore")
+    assert response.status_code == 400

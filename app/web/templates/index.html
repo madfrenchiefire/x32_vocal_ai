@@ -708,6 +708,43 @@
         }
       });
       bypassCell.appendChild(bypassBtn);
+
+      // Burn active notches into the console's own channel EQ (persists
+      // with the app out of the audio path), and undo that.
+      const eqCommitBtn = document.createElement("button");
+      eqCommitBtn.className = "btn btn-secondary btn-sm";
+      eqCommitBtn.textContent = "EQ→Desk";
+      eqCommitBtn.title = "Write the deepest active notches into this channel's console EQ (max 4 bands)";
+      eqCommitBtn.disabled = channel.active_notch_count === 0;
+      eqCommitBtn.addEventListener("click", async () => {
+        try {
+          const data = await api(`/api/channels/${channel.index}/eq/commit`, { method: "POST" });
+          const bands = data.written.map((w) => `${w.frequency_hz}Hz ${w.gain_db}dB${w.gain_clamped ? " (clamped)" : ""}`);
+          setStatus("routing-status", `Ch ${channel.index} console EQ written: ${bands.join(", ")}`, "success");
+          await loadChannels();
+        } catch (err) {
+          setStatus("routing-status", `EQ commit failed: ${err}`, "error");
+          await loadChannels();  // restore may have become available even on failure
+        }
+      });
+      bypassCell.appendChild(eqCommitBtn);
+
+      if (channel.has_console_eq_snapshot) {
+        const eqRestoreBtn = document.createElement("button");
+        eqRestoreBtn.className = "btn btn-secondary btn-sm";
+        eqRestoreBtn.textContent = "EQ Undo";
+        eqRestoreBtn.title = "Restore this channel's console EQ to its pre-commit state";
+        eqRestoreBtn.addEventListener("click", async () => {
+          try {
+            await api(`/api/channels/${channel.index}/eq/restore`, { method: "POST" });
+            setStatus("routing-status", `Ch ${channel.index} console EQ restored.`, "success");
+            await loadChannels();
+          } catch (err) {
+            setStatus("routing-status", `EQ restore failed: ${err}`, "error");
+          }
+        });
+        bypassCell.appendChild(eqRestoreBtn);
+      }
       tr.appendChild(bypassCell);
 
       return tr;
