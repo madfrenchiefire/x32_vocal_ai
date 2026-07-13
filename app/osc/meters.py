@@ -68,6 +68,30 @@ def channel_meters(blob: bytes) -> list[float]:
     return values[METERS1_CHANNEL_SLOTS]
 
 
+RTA_BIN_COUNT = 100
+
+
+def decode_rta_blob(blob: bytes) -> list[float]:
+    """Decode one /meters/15 RTA blob into 100 dB values (-128.0 .. 0.0).
+
+    Format per X32_OSC.pdf: 50 int32 words packing 100 successive
+    little-endian SIGNED short ints; each dB value = short / 256.0 (so
+    0x8000 -> -128.0 dB, 0xffff -> -0.004 dB, and exactly 0x0000 = 0.0 dB
+    means clipping). Tolerates the same leading little-endian int32 count
+    word the /meters/1 and /meters/2 blobs carry (confirmed on real
+    captures), in case /meters/15 shares it."""
+    if len(blob) >= 4:
+        (maybe_count,) = struct.unpack("<i", blob[:4])
+        if maybe_count == 50 and len(blob) == 4 + RTA_BIN_COUNT * 2:
+            blob = blob[4:]
+    if len(blob) != RTA_BIN_COUNT * 2:
+        raise MeterBlobError(
+            f"RTA blob is {len(blob)} bytes; expected {RTA_BIN_COUNT * 2} (or +4 with a count prefix)"
+        )
+    shorts = struct.unpack(f"<{RTA_BIN_COUNT}h", blob)
+    return [s / 256.0 for s in shorts]
+
+
 def decode_meter_blob(blob: bytes) -> list[float]:
     """Decode one /meters/N OSC blob into its list of 0..1 floats.
 

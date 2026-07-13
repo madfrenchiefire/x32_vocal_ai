@@ -57,6 +57,9 @@ def create_app(
 
     socketio = SocketIO(app, async_mode="threading")
     register_socket_handlers(socketio, state, diagnostics, audio_engine)
+    # Routes that push events themselves (e.g. the RTA streamer) reach the
+    # SocketIO instance through here.
+    app.extensions["socketio"] = socketio
 
     return app, socketio
 

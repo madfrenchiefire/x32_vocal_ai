@@ -356,6 +356,23 @@ class OscConnection:
                 if q in waiters:
                     waiters.remove(q)
 
+    def add_address_listener(self, address: str, q: queue.Queue) -> None:
+        """Register a persistent queue receiving every message that arrives
+        on one specific address -- unlike query()/listen(), which register
+        and unregister around a single exchange, this stays registered
+        until remove_address_listener. Used for continuous streams (e.g.
+        the /meters/15 RTA blobs) where per-call registration would drop
+        messages between calls. Pass an unbounded queue; pair with
+        remove_address_listener in a finally."""
+        with self._pending_lock:
+            self._pending.setdefault(address, []).append(q)
+
+    def remove_address_listener(self, address: str, q: queue.Queue) -> None:
+        with self._pending_lock:
+            listeners = self._pending.get(address, [])
+            if q in listeners:
+                listeners.remove(q)
+
     def add_sniffer(self, q: queue.Queue) -> None:
         """Register a wildcard listener: q receives every incoming
         (address, args) message on this connection, whatever its address --

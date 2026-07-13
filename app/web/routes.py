@@ -24,6 +24,7 @@ from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnection
 from app.osc.discovery import discover_consoles
 from app.osc.routing_apply import RoutingApplyError, apply_routing, bypass_channel, restore_snapshot
 from app.osc.routing_snapshot import read_routing_snapshot, save_snapshot
+from app.osc.rta import RtaStreamer, rta_source_for_channel
 from app.osc.scene import SceneSaveError, save_console_scene
 from app.osc.scribble_strip import read_all_channel_configs
 
@@ -357,6 +358,62 @@ def toggle_channel_echo_cancellation(channel: int):
         after={"channel": channel, "enabled": enabled},
     )
     return jsonify(channel=_channel_dict(state, channel))
+
+
+@bp.route("/api/channels/<int:channel>/notches")
+def channel_notches(channel: int):
+    """The channel's live active notches (frequency/depth/Q) from the
+    running audio engine's filter bank -- used by the spectrum display's
+    notch markers."""
+    state = current_app.extensions["app_state"]
+    audio_engine = current_app.extensions.get("audio_engine")
+    if channel not in state.channels:
+        return jsonify(error=f"channel {channel} out of range"), 404
+    card_slot = state.channels[channel].card_out_slot
+    bank = audio_engine.filter_banks.get(card_slot) if (audio_engine is not None and card_slot is not None) else None
+    return jsonify(notches=bank.active_notches() if bank is not None else [])
+
+
+@bp.route("/api/rta/start", methods=["POST"])
+def rta_start():
+    """Start streaming the console's 100-band RTA (/meters/15) to the
+    browser as `rta` WebSocket events. Body {"channel": n} points the
+    console's RTA at that channel (pre-EQ) first -- snapshotting the
+    previous RTA source, which /api/rta/stop restores."""
+    diagnostics = current_app.extensions["diagnostics"]
+    socketio = current_app.extensions["socketio"]
+    osc, error = _osc_or_error()
+    if error:
+        return error
+
+    existing = current_app.extensions.get("rta_streamer")
+    if existing is not None and existing.running:
+        existing.stop()
+
+    body = request.get_json(force=True, silent=True) or {}
+    channel = body.get("channel")
+    source = None
+    if channel is not None:
+        if not isinstance(channel, int) or not 1 <= channel <= 32:
+            return jsonify(error="channel must be an integer 1-32"), 400
+        source = rta_source_for_channel(channel)
+
+    correlation_id = diagnostics.log_user_action("rta_start", {"channel": channel})
+    streamer = RtaStreamer(osc, diagnostics, on_rta=lambda bins: socketio.emit("rta", {"bins": bins}))
+    streamer.start(source=source, correlation_id=correlation_id)
+    current_app.extensions["rta_streamer"] = streamer
+    return jsonify(running=True, channel=channel)
+
+
+@bp.route("/api/rta/stop", methods=["POST"])
+def rta_stop():
+    diagnostics = current_app.extensions["diagnostics"]
+    streamer = current_app.extensions.get("rta_streamer")
+    if streamer is None or not streamer.running:
+        return jsonify(running=False)
+    correlation_id = diagnostics.log_user_action("rta_stop")
+    streamer.stop(correlation_id=correlation_id)
+    return jsonify(running=False)
 
 
 @bp.route("/api/channels/<int:channel>/eq/commit", methods=["POST"])

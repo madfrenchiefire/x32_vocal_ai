@@ -355,8 +355,23 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   channel/frequency/time, pushed live over WebSocket as it's logged via
   `DiagnosticsLogger.add_listener` — not polled). **Not implemented**: the ML
   confidence threshold slider (inert regardless, since Phase 5's ML classifier
-  doesn't exist) and the per-channel spectrum display (blocked on the
-  unconfirmed `/meters` blob layout below).
+  doesn't exist).
+- **Spectrum display** (implemented — the console's own RTA, `app/osc/rta.py` +
+  `POST /api/rta/start`/`/stop`, "Spectrum (console RTA)" card): streams the
+  desk's 100-band RTA (`/meters/15`; blob format doc-confirmed —
+  100 little-endian *signed* shorts packed as 50 int32 words, dB = short/256,
+  exactly 0x0000 = clipping; decoder `app.osc.meters.decode_rta_blob`) over
+  the `rta` WebSocket event into a canvas, with the selected channel's live
+  notch frequencies (`GET /api/channels/<n>/notches`) overlaid as markers.
+  Selecting a channel writes `/-stat/rtasource` (doc-confirmed: 0-31 =
+  channels 1-32 pre-EQ) so the console's RTA follows it — snapshot-first,
+  restored on stop, and left untouched entirely if the snapshot read fails
+  or no channel is chosen. `RtaStreamer` re-sends the `/meters ,s
+  "/meters/15"` subscribe every ~8 s (meter subscriptions die after ~10 s,
+  like `/xremote`) via a persistent `OscConnection.add_address_listener`
+  queue. One assumption, marked in the JS: the 100 bins are taken as
+  log-spaced 20 Hz–20 kHz for marker placement — matches the desk's own RTA
+  display range but unverified against a swept tone.
 - **socket.io client is loaded from a CDN** (`cdn.socket.io`), not vendored
   locally — the venue PC needs internet access at least once (browser caching
   covers repeat runs offline). Verified this degrades gracefully rather than

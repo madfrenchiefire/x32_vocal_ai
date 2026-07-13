@@ -319,6 +319,19 @@
       </div>
     </section>
 
+    <section class="card" id="spectrum">
+      <h2>Spectrum (console RTA)</h2>
+      <div class="btn-group">
+        <select id="rta-channel">
+          <option value="">Console's current RTA source</option>
+        </select>
+        <button class="btn btn-secondary" id="rta-start-btn">Start</button>
+        <button class="btn btn-secondary" id="rta-stop-btn">Stop</button>
+      </div>
+      <div id="rta-status" class="status"></div>
+      <canvas id="rta-canvas" width="900" height="220" style="width: 100%; max-width: 100%; background: var(--idle-bg); border-radius: 6px;"></canvas>
+    </section>
+
     <section class="card" id="diagnostics">
       <h2>Diagnostics</h2>
       <div class="btn-group">
@@ -818,6 +831,7 @@
 
       updateAddChannelSelect(toShow);
       applyLevels(latestLevels);  // freshly-created meter bars start from the last known reading, not 0
+      populateRtaChannels();
     }
 
     el("add-channel-select").addEventListener("change", () => {
@@ -1035,7 +1049,101 @@
         }
       });
       socket.on("channel_meters", applyLevels);
+      // rtaRunning/drawRta are declared below; the callback only fires
+      // after the whole script has run, so the references are safe.
+      socket.on("rta", (msg) => {
+        if (!rtaRunning) return;
+        rtaLatestBins = msg.bins;
+        requestAnimationFrame(drawRta);
+      });
     }
+
+    // -- spectrum (console RTA) ------------------------------------------
+    // 100 RTA bins assumed log-spaced 20 Hz - 20 kHz (matches the desk's
+    // own RTA display range); notch markers use the same mapping.
+    const RTA_DB_FLOOR = -90;
+    let rtaRunning = false;
+    let rtaLatestBins = null;
+    let rtaNotches = [];
+    let rtaNotchTimer = null;
+
+    function rtaChannelValue() {
+      const raw = el("rta-channel").value;
+      return raw === "" ? null : parseInt(raw, 10);
+    }
+
+    function populateRtaChannels() {
+      const select = el("rta-channel");
+      const keep = select.value;
+      while (select.options.length > 1) select.remove(1);
+      for (const channel of latestChannels) {
+        const option = document.createElement("option");
+        option.value = channel.index;
+        option.textContent = channel.scribble_name
+          ? `Ch ${channel.index}: ${channel.scribble_name}` : `Ch ${channel.index}`;
+        select.appendChild(option);
+      }
+      select.value = keep;
+    }
+
+    function drawRta() {
+      const canvas = el("rta-canvas");
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!rtaLatestBins) return;
+      const n = rtaLatestBins.length;
+      const barWidth = canvas.width / n;
+      ctx.fillStyle = "#40c0d0";
+      for (let i = 0; i < n; i++) {
+        const db = Math.max(rtaLatestBins[i], RTA_DB_FLOOR);
+        const h = ((db - RTA_DB_FLOOR) / -RTA_DB_FLOOR) * canvas.height;
+        ctx.fillRect(i * barWidth, canvas.height - h, Math.max(barWidth - 1, 1), h);
+      }
+      // Notch markers: log-position 20 Hz - 20 kHz across the width.
+      ctx.strokeStyle = "#e04040";
+      ctx.lineWidth = 2;
+      for (const notch of rtaNotches) {
+        const x = (Math.log(notch.frequency_hz / 20) / Math.log(1000)) * canvas.width;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+    }
+
+    async function refreshRtaNotches() {
+      const channel = rtaChannelValue();
+      if (channel === null) { rtaNotches = []; return; }
+      try {
+        const data = await api(`/api/channels/${channel}/notches`);
+        rtaNotches = data.notches;
+      } catch (err) {
+        rtaNotches = [];
+      }
+    }
+
+    el("rta-start-btn").addEventListener("click", async () => {
+      try {
+        await api("/api/rta/start", { method: "POST", body: JSON.stringify({ channel: rtaChannelValue() }) });
+        rtaRunning = true;
+        setStatus("rta-status", "Streaming console RTA.", "success");
+        refreshRtaNotches();
+        if (rtaNotchTimer === null) rtaNotchTimer = setInterval(refreshRtaNotches, 2000);
+      } catch (err) {
+        setStatus("rta-status", `RTA start failed: ${err}`, "error");
+      }
+    });
+
+    el("rta-stop-btn").addEventListener("click", async () => {
+      try {
+        await api("/api/rta/stop", { method: "POST" });
+      } catch (err) {
+        // fall through -- stop locally regardless
+      }
+      rtaRunning = false;
+      if (rtaNotchTimer !== null) { clearInterval(rtaNotchTimer); rtaNotchTimer = null; }
+      setStatus("rta-status", "Stopped.");
+    });
 
     loadConsoleStatus();
     loadDevices();

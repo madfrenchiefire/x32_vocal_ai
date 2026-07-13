@@ -798,3 +798,70 @@ def test_apply_routing_skips_safety_scene_when_unconfigured(fake_x32, tmp_path, 
         assert getattr(fake_x32, "saved_scenes", []) == []
     finally:
         osc.close()
+
+
+# -- console RTA streaming -------------------------------------------------------
+
+
+def test_rta_start_and_stop_manage_streamer(fake_x32, tmp_path, app_state, diagnostics):
+    from app.osc.rta import RTA_SOURCE_ADDRESS
+
+    fake_x32.extra_responses[RTA_SOURCE_ADDRESS] = (70,)
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc)
+    client = app.test_client()
+    try:
+        response = client.post("/api/rta/start", json={"channel": 9})
+        assert response.status_code == 200
+        streamer = app.extensions["rta_streamer"]
+        assert streamer.running
+        assert fake_x32.extra_responses[RTA_SOURCE_ADDRESS] == (8,)  # channel 9 pre-EQ
+
+        response = client.post("/api/rta/stop")
+        assert response.status_code == 200
+        assert not streamer.running
+        # The restore is a UDP send -- give the fake console a moment.
+        import time
+        deadline = time.monotonic() + 1.0
+        while fake_x32.extra_responses[RTA_SOURCE_ADDRESS] != (70,) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert fake_x32.extra_responses[RTA_SOURCE_ADDRESS] == (70,)  # restored
+    finally:
+        osc.close()
+
+
+def test_rta_start_rejects_bad_channel_and_requires_osc(fake_x32, tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    assert client.post("/api/rta/start", json={}).status_code == 503  # no console
+
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app.extensions["osc_connection"] = osc
+    try:
+        assert client.post("/api/rta/start", json={"channel": 40}).status_code == 400
+    finally:
+        osc.close()
+
+
+def test_rta_stop_when_never_started_is_a_noop(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post("/api/rta/stop")
+    assert response.status_code == 200
+    assert response.get_json() == {"running": False}
+
+
+def test_channel_notches_endpoint_returns_live_bank_notches(tmp_path, app_state, diagnostics):
+    bank = NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)
+    bank.add_notch(1250.0)
+    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={3: bank}, detector=MagicMock())
+    app_state.channels[9].card_out_slot = 3
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
+    client = app.test_client()
+
+    data = client.get("/api/channels/9/notches").get_json()
+    assert len(data["notches"]) == 1
+    assert data["notches"][0]["frequency_hz"] == 1250.0
+
+    # A channel with no card slot / bank simply has no notches.
+    assert client.get("/api/channels/5/notches").get_json() == {"notches": []}
