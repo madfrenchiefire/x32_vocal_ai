@@ -285,8 +285,17 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   never silently disappear from view. Channel *names/colors* pulled live from
   the console via scribble-strip reads are now wired into this grid: each row
   shows the channel's console name plus a color swatch decoded from
-  `app.osc.scribble_strip.read_all_channel_configs` (32 paced queries, one per
-  channel) via `app.state.AppState.apply_channel_configs`. This is deliberately
+  `app.osc.scribble_strip.read_all_channel_configs` (64 paced queries — the
+  `/ch/NN/config/name` and `/ch/NN/config/color` *leaf* addresses; **the
+  parent `/ch/NN/config` node gets no reply to a live bare query on real
+  hardware** (confirmed 2026-07-07, two captures, all 32 channels — same
+  parent-vs-leaf pattern as the routing tree's bulk nodes, which also only
+  appear in scene dumps), which is why the first version of this feature
+  showed no names against a real console) via
+  `app.state.AppState.apply_channel_configs`. The color leaf's int→token
+  enum (`app.osc.scribble_strip.SCRIBBLE_COLORS`, 8 colors + 8 inverted, from
+  Maillot's table) is likely-correct-by-convention but not yet cross-checked
+  against the desk for a specific value. This is deliberately
   *not* done synchronously inside `/api/console/connect` (would add several
   seconds to that response) — the web UI calls the new `POST
   /api/channels/refresh_names` itself right after a successful connect

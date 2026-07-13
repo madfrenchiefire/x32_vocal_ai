@@ -12,7 +12,7 @@ from app.osc.protocol_discovery import (
     sniff_pushed_changes,
     watch_until_changed,
 )
-from app.osc.scribble_strip import channel_config_addr
+from app.osc.scribble_strip import channel_color_addr, channel_name_addr
 
 
 def _make_osc(fake_x32, diagnostics, app_state, **kwargs) -> OscConnection:
@@ -41,7 +41,8 @@ def _populate_full_state(fake_x32) -> None:
     for addr in all_assign_set_addresses():
         fake_x32.extra_responses[addr] = (0,)
     for ch in range(1, 33):
-        fake_x32.extra_responses[channel_config_addr(ch)] = (f"Ch{ch}", 1, "GN", ch)
+        fake_x32.extra_responses[channel_name_addr(ch)] = (f"Ch{ch}",)
+        fake_x32.extra_responses[channel_color_addr(ch)] = (2,)  # GN
 
 
 def test_capture_full_state_gathers_routing_assign_sets_and_scribble(fake_x32, diagnostics, app_state):
@@ -55,8 +56,8 @@ def test_capture_full_state_gathers_routing_assign_sets_and_scribble(fake_x32, d
     assert result["xinfo"]["model"] == "X32"
     assert result["routing_snapshot"]["userrout_in"] == list(range(addresses.NUM_USERROUT_IN))
     assert result["assign_sets"][all_assign_set_addresses()[0]] == (0,)
-    assert result["channel_configs"][1] == ("Ch1", 1, "GN", 1)
-    assert result["channel_configs"][32] == ("Ch32", 1, "GN", 32)
+    assert result["channel_configs"][1] == ("Ch1", "GN")
+    assert result["channel_configs"][32] == ("Ch32", "GN")
 
 
 def test_watch_until_changed_detects_a_change_mid_poll(fake_x32, diagnostics, app_state):

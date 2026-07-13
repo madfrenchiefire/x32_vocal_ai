@@ -37,19 +37,23 @@ def test_set_assign_set_snapshot():
 
 def test_apply_channel_configs_sets_name_and_color():
     state = AppState()
-    state.apply_channel_configs({1: ("Ruby Vocal", 51, "YE", 1), 9: ("Left Vocal", 50, "RD", 9)})
+    state.apply_channel_configs({1: ("Ruby Vocal", "YE"), 9: ("Left Vocal", "RD")})
     assert state.channels[1].scribble_name == "Ruby Vocal"
     assert state.channels[1].scribble_color == "YE"
     assert state.channels[9].scribble_name == "Left Vocal"
     assert state.channels[9].scribble_color == "RD"
 
 
-def test_apply_channel_configs_leaves_unresolved_channels_untouched():
+def test_apply_channel_configs_leaves_unresolved_fields_untouched():
     state = AppState()
-    state.apply_channel_configs({1: ("Ruby Vocal", 51, "YE", 1)})
-    state.apply_channel_configs({1: None, 2: None})  # a re-query that timed out this time
+    state.apply_channel_configs({1: ("Ruby Vocal", "YE")})
+    # A re-query where channel 1's reads timed out entirely and channel
+    # 2's name arrived but its color didn't.
+    state.apply_channel_configs({1: (None, None), 2: ("Drums", None)})
     assert state.channels[1].scribble_name == "Ruby Vocal"  # not blanked out
-    assert state.channels[2].scribble_name is None
+    assert state.channels[1].scribble_color == "YE"
+    assert state.channels[2].scribble_name == "Drums"
+    assert state.channels[2].scribble_color is None
 
 
 def test_summary_is_a_plain_dict_copy():

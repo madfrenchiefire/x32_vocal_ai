@@ -560,7 +560,9 @@
       if (channel.scribble_name) {
         const swatch = document.createElement("span");
         swatch.className = "color-swatch";
-        swatch.style.backgroundColor = SCRIBBLE_COLOR_MAP[channel.scribble_color] || SCRIBBLE_COLOR_MAP.OFF;
+        // Inverted palette variants ("YEi") use the same base color.
+        const colorToken = (channel.scribble_color || "").replace(/i$/, "");
+        swatch.style.backgroundColor = SCRIBBLE_COLOR_MAP[colorToken] || SCRIBBLE_COLOR_MAP.OFF;
         nameCell.appendChild(swatch);
         nameCell.appendChild(document.createTextNode(channel.scribble_name));
       } else {
