@@ -24,6 +24,7 @@ from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnection
 from app.osc.discovery import discover_consoles
 from app.osc.routing_apply import RoutingApplyError, apply_routing, bypass_channel, restore_snapshot
 from app.osc.routing_snapshot import read_routing_snapshot, save_snapshot
+from app.osc.scene import SceneSaveError, save_console_scene
 from app.osc.scribble_strip import read_all_channel_configs
 
 bp = Blueprint("main", __name__)
@@ -240,6 +241,37 @@ def disconnect_console():
         watchdog.osc = None
 
     return jsonify(connected=False)
+
+
+@bp.route("/api/console/save_safety_scene", methods=["POST"])
+def save_safety_scene():
+    """Manually save the console-side safety scene into the given slot
+    (also remembers the slot in config, so the automatic pre-first-write
+    save uses it from then on)."""
+    state = current_app.extensions["app_state"]
+    diagnostics = current_app.extensions["diagnostics"]
+    config = current_app.extensions["app_config"]
+    osc, error = _osc_or_error()
+    if error:
+        return error
+
+    body = request.get_json(force=True, silent=True) or {}
+    slot = body.get("slot", config.safety_scene_slot)
+    if not isinstance(slot, int) or not 0 <= slot <= 99:
+        return jsonify(error="slot must be an integer 0-99"), 400
+
+    correlation_id = diagnostics.log_user_action("save_safety_scene", {"slot": slot})
+    try:
+        save_console_scene(osc, diagnostics, slot, correlation_id=correlation_id)
+    except SceneSaveError as exc:
+        return jsonify(error=str(exc)), 500
+
+    state.safety_scene_saved = True
+    config.safety_scene_slot = slot
+    config_path = current_app.extensions.get("config_path")
+    if config_path is not None:
+        save_config(config, config_path)
+    return jsonify(saved=True, slot=slot)
 
 
 # -- state / channels --------------------------------------------------------
@@ -466,6 +498,20 @@ def apply_routing_route():
         return jsonify(error="no channels selected"), 400
 
     correlation_id = diagnostics.log_user_action("apply_routing", {"channels": channels})
+
+    # Belt and braces before the app's first console write of the session:
+    # save a real scene on the console itself (recallable from the desk
+    # with the PC dead), if the user has designated a slot for it. A
+    # failed safety save blocks the apply -- proceeding without the net
+    # would defeat its purpose.
+    config = current_app.extensions["app_config"]
+    if config.safety_scene_slot is not None and not state.safety_scene_saved:
+        try:
+            save_console_scene(osc, diagnostics, config.safety_scene_slot, correlation_id=correlation_id)
+        except SceneSaveError as exc:
+            return jsonify(error=f"safety scene save failed, routing not applied: {exc}"), 500
+        state.safety_scene_saved = True
+
     try:
         assignments = apply_routing(osc, diagnostics, channels, snapshot, state, correlation_id=correlation_id)
     except RoutingApplyError as exc:

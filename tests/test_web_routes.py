@@ -731,3 +731,70 @@ def test_restore_channel_eq_without_snapshot_400s(tmp_path, app_state, diagnosti
     client = app.test_client()
     response = client.post("/api/channels/9/eq/restore")
     assert response.status_code == 400
+
+
+# -- console-side safety scene --------------------------------------------------
+
+
+def test_save_safety_scene_endpoint_saves_and_persists_slot(fake_x32, tmp_path, app_state, diagnostics):
+    config_path = tmp_path / "config.json"
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, config = _app(tmp_path, app_state, diagnostics, osc=osc, config_path=str(config_path))
+    client = app.test_client()
+    try:
+        response = client.post("/api/console/save_safety_scene", json={"slot": 90})
+        assert response.status_code == 200
+        assert response.get_json() == {"saved": True, "slot": 90}
+        assert fake_x32.saved_scenes[0][:2] == ("scene", 90)
+        assert config.safety_scene_slot == 90
+        assert app_state.safety_scene_saved is True
+        assert load_config(config_path).safety_scene_slot == 90
+    finally:
+        osc.close()
+
+
+def test_save_safety_scene_endpoint_rejects_bad_slot(fake_x32, tmp_path, app_state, diagnostics):
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc)
+    client = app.test_client()
+    try:
+        assert client.post("/api/console/save_safety_scene", json={"slot": 100}).status_code == 400
+        assert client.post("/api/console/save_safety_scene", json={}).status_code == 400  # no slot configured
+    finally:
+        osc.close()
+
+
+def test_apply_routing_saves_safety_scene_once_when_configured(fake_x32, tmp_path, app_state, diagnostics):
+    for addr in addresses.ALL_USERROUT_IN:
+        fake_x32.extra_responses[addr] = (0,)
+    fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[0]] = (0,)
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app_state.set_snapshot(_make_snapshot())
+    app, _sio, config = _app(tmp_path, app_state, diagnostics, osc=osc)
+    config.safety_scene_slot = 95
+    client = app.test_client()
+    try:
+        assert client.post("/api/routing/apply", json={"channels": [1]}).status_code == 200
+        assert len(fake_x32.saved_scenes) == 1
+        assert fake_x32.saved_scenes[0][:2] == ("scene", 95)
+
+        # Second apply in the same session must not save another scene.
+        assert client.post("/api/routing/apply", json={"channels": [2]}).status_code == 200
+        assert len(fake_x32.saved_scenes) == 1
+    finally:
+        osc.close()
+
+
+def test_apply_routing_skips_safety_scene_when_unconfigured(fake_x32, tmp_path, app_state, diagnostics):
+    for addr in addresses.ALL_USERROUT_IN:
+        fake_x32.extra_responses[addr] = (0,)
+    fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[0]] = (0,)
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    app_state.set_snapshot(_make_snapshot())
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc)  # safety_scene_slot stays None
+    client = app.test_client()
+    try:
+        assert client.post("/api/routing/apply", json={"channels": [1]}).status_code == 200
+        assert getattr(fake_x32, "saved_scenes", []) == []
+    finally:
+        osc.close()

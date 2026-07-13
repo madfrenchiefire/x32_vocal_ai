@@ -236,6 +236,12 @@
           <select id="console-search-results" style="flex: 1; min-width: 12rem;"></select>
           <button class="btn btn-secondary btn-sm" id="console-use-result-btn">Use Selected</button>
         </div>
+        <div class="field">
+          <label for="safety-scene-slot">Safety scene slot</label>
+          <input type="number" id="safety-scene-slot" min="0" max="99" placeholder="--" style="width: 4.5rem;"
+                 title="Console scene slot (0-99) to save the pre-app state into. Pick one you know is free -- it will be overwritten.">
+          <button class="btn btn-secondary btn-sm" id="safety-scene-btn">Save Safety Scene</button>
+        </div>
         <div id="console-status" class="status"></div>
       </section>
 
@@ -403,10 +409,33 @@
         const data = await api("/api/state");
         el("echo-toggle").checked = Boolean(data.config.echo_cancellation_enabled);
         showEchoReference(data.config.echo_reference_card_channels);
+        if (data.config.safety_scene_slot !== null && data.config.safety_scene_slot !== undefined) {
+          el("safety-scene-slot").value = data.config.safety_scene_slot;
+        }
       } catch (err) {
         setStatus("echo-status", `Failed to load echo cancellation state: ${err}`, "error");
       }
     }
+
+    el("safety-scene-btn").addEventListener("click", async () => {
+      const slot = parseInt(el("safety-scene-slot").value, 10);
+      if (Number.isNaN(slot)) {
+        setStatus("console-status", "Enter a scene slot number (0-99) first.", "error");
+        return;
+      }
+      if (!window.confirm(`Save the console's current state into scene slot ${slot}? Anything already in that slot will be overwritten.`)) {
+        return;
+      }
+      try {
+        const data = await api("/api/console/save_safety_scene", {
+          method: "POST",
+          body: JSON.stringify({ slot }),
+        });
+        setStatus("console-status", `Safety scene saved to slot ${data.slot}.`, "success");
+      } catch (err) {
+        setStatus("console-status", `Safety scene save failed: ${err}`, "error");
+      }
+    });
 
     el("console-connect-btn").addEventListener("click", async () => {
       const host = el("console-host").value.trim();

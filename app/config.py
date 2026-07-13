@@ -59,6 +59,14 @@ class AppConfig:
     # --- Routing writes ---
     routing_write_pace_sec: float = 0.02  # delay between paced OSC writes
 
+    # --- Console-side safety scene (app/osc/scene.py) ---
+    # Scene slot (0-99) to save the console's pre-app state into before the
+    # app's first routing write of a session, recallable from the desk's own
+    # Scenes page even with the PC dead. None = off: scene slots hold real
+    # show data, and the app must never overwrite one the user didn't
+    # explicitly choose.
+    safety_scene_slot: int | None = None
+
     # --- Diagnostics ---
     ring_buffer_size: int = 10_000
     log_dir: str = "logs"

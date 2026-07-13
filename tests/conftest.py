@@ -52,6 +52,13 @@ class FakeX32:
             reply_args = None
             if msg.address == "/xinfo":
                 reply_args = ("127.0.0.1", "TESTX32", "X32", self.version)
+            elif msg.address == "/save":
+                # Mirrors the real console's dataset-save acknowledgement:
+                # /save ,siss scene <slot> <name> <note> -> /save scene 1.
+                # Saved scenes are recorded for tests to inspect.
+                self.saved_scenes = getattr(self, "saved_scenes", [])
+                self.saved_scenes.append(tuple(msg.params))
+                reply_args = (msg.params[0], 1)
             elif msg.params:
                 # A "set": store it, then echo back the new value (mirrors
                 # a real console confirming a write).

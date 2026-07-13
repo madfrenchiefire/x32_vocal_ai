@@ -76,6 +76,10 @@ class AppState:
         # Deliberately NOT restored by the crash watchdog: a committed EQ
         # is meant to outlive the app; restoring it is its own user action.
         self.console_eq_snapshots: dict[int, dict] = {}
+        # Whether the console-side safety scene (app.osc.scene) has been
+        # saved this session -- it's saved once, before the app's first
+        # routing write, not on every apply.
+        self.safety_scene_saved: bool = False
         self.channels: dict[int, ChannelState] = {i: ChannelState(index=i) for i in range(1, 33)}
 
     def update_connection(self, **changes: Any) -> None:
@@ -127,5 +131,6 @@ class AppState:
                 "has_current_snapshot": self.current_snapshot is not None,
                 "has_assign_set_snapshot": self.assign_set_snapshot is not None,
                 "console_eq_snapshot_channels": sorted(self.console_eq_snapshots),
+                "safety_scene_saved": self.safety_scene_saved,
                 "channels": {i: vars(c).copy() for i, c in self.channels.items()},
             }

@@ -207,6 +207,17 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   block is already on the matching User bank* (true for a channel that was
   already inserted via this app; not true if the block's bank was never set or
   was set wrong). Implemented as a toggle (bypass ↔ re-insert).
+- **Console-side safety scene** (implemented, `app/osc/scene.py`): before the
+  app's first routing write of a session, `POST /api/routing/apply` saves a
+  real scene into the console's own scene list (`/save ,siss scene <slot>
+  <name> <note>`, doc-confirmed reply `/save scene <0|1>`), so the pre-app
+  state is recallable from the desk's Scenes page even with the PC dead —
+  the restore path that needs no PC. The slot is `AppConfig.safety_scene_slot`
+  (**default None = off**: scene slots hold real show data, and the app must
+  never overwrite one the user didn't explicitly choose — the web UI's
+  "Save Safety Scene" control sets the slot with an are-you-sure prompt and
+  persists it). Saved once per session, not per apply; a *failed* safety
+  save blocks the apply rather than proceeding without the net.
 - **Full restore** = replay the snapshot (web UI + crash watchdog; no physical button).
   The crash watchdog (`app.watchdog.Watchdog`) restores the routing snapshot and
   the Set A/B assign-set snapshot (`app.osc.assign_set.snapshot_assign_sets`,
