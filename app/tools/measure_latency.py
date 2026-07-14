@@ -37,6 +37,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--out-slot", type=int, default=32, help="Card channel the click plays out on (default 32)")
     parser.add_argument("--in-slot", type=int, default=32, help="Card return the click is detected on (default 32)")
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=None,
+        help="ASIO buffer size in samples for this measurement (e.g. 64). Overrides "
+        "audio_block_size from config; this is the value the driver actually opens the "
+        "stream with, so it pins the ASIO buffer rather than letting the driver default win.",
+    )
     parser.add_argument("--config", default=None)
     parser.add_argument("--log-dir", default=None)
     return parser
@@ -51,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
         config.console_port = args.port
     if args.log_dir is not None:
         config.log_dir = args.log_dir
+    if args.block_size is not None:
+        config.audio_block_size = args.block_size
 
     if config.audio_input_device is None or config.audio_output_device is None:
         print(
@@ -88,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
 
         print(
             f"Routing console loopback (card out {args.out_slot} -> card return {args.in_slot}), "
-            "playing click ..."
+            f"ASIO buffer {config.audio_block_size} samples, playing click ..."
         )
         result = measure_round_trip_latency(
             osc, diagnostics, config,
@@ -105,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         if result.round_trip_ms > 10.0:
             print(
-                "NOTE: above CLAUDE.md's ~10 ms round-trip target -- try a smaller ASIO buffer size."
+                f"NOTE: above CLAUDE.md's ~10 ms round-trip target. Re-run with a smaller buffer, "
+                f"e.g. --block-size 64 (currently {config.audio_block_size}). If the driver rejects "
+                "it, lower the buffer in the X-LIVE ASIO control panel first, then match it here."
             )
     except LatencyMeasurementError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -102,7 +102,14 @@ def find_click_delay_samples(recording: np.ndarray, playback: np.ndarray, click_
 def _default_run_playrec(config: AppConfig, playback_multi: np.ndarray, in_channels: int) -> np.ndarray:
     """Play playback_multi (frames x out_channels) and record in_channels
     simultaneously on the configured devices. Imported lazily so the rest
-    of this module (and its tests) work without PortAudio installed."""
+    of this module (and its tests) work without PortAudio installed.
+
+    `blocksize`/`latency` are passed explicitly: without them PortAudio (and
+    the ASIO driver behind it) falls back to its own default buffer, which
+    ignores whatever you set in the ASIO control panel and makes the
+    measured latency reflect that default rather than `audio_block_size`.
+    Requesting the size directly is what actually pins the ASIO buffer to
+    it (e.g. 64) for this measurement."""
     import sounddevice as sd
 
     recording = sd.playrec(
@@ -111,6 +118,8 @@ def _default_run_playrec(config: AppConfig, playback_multi: np.ndarray, in_chann
         channels=in_channels,
         input_mapping=None,
         device=(config.audio_input_device, config.audio_output_device),
+        blocksize=config.audio_block_size,
+        latency="low",
         blocking=True,
     )
     return recording
