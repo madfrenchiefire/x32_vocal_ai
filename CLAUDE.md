@@ -78,6 +78,17 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   own captured audio, not the OSC `/meters` blob described below.
 - `sounddevice` (PortAudio) via the ASIO driver, 48 kHz, 64–128 sample buffer.
   Target total round trip ≤ ~10 ms; measure it (loopback click test).
+  **X-LIVE recommended stable setting (community/videos): 64 samples with
+  the driver's "Safe Mode" ON.** Safe Mode is a vendor control-panel option
+  (extra USB-streaming buffer for glitch-free playback) that ASIO does NOT
+  expose to PortAudio, so the app can't toggle it — it's set in the X-LIVE
+  ASIO panel and left on. The 64-sample buffer is what the app requests
+  (`AppConfig.audio_block_size`, passed as `blocksize` to both the live
+  engine's stream and `app.audio.latency`'s `sd.playrec` — the latter used
+  to omit it and silently inherit the driver's larger default). Set
+  `audio_block_size: 64` in config.json so the live engine and the latency
+  tool match; expect the measured round trip to sit a few ms above 64/48k
+  because Safe Mode's extra buffering is included in the honest figure.
 - Audio callback does per-channel biquad notch filtering plus, if echo cancellation
   is enabled for that channel, the adaptive echo canceller (`scipy`/numpy, persistent
   state, preallocated buffers, no allocation in callback).
