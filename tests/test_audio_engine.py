@@ -108,8 +108,33 @@ def test_audio_callback_applies_notch_bank_per_channel(diagnostics):
     engine._audio_callback(indata, outdata, 64, None, None)
 
     assert not np.allclose(outdata[:, 0], indata[:, 0])  # channel 1 was filtered (bank exists)
-    np.testing.assert_allclose(outdata[:, 1], indata[:, 1])  # channel 2 passthrough (no bank)
+    # Channel 2 is unmanaged (no bank) -- its Card output is ignored by the
+    # console in the insert design, so the callback zeroes it rather than
+    # passing it through.
+    np.testing.assert_allclose(outdata[:, 1], np.zeros(64, dtype=np.float32))
     assert outdata[:, 0].dtype == indata.dtype
+
+
+def test_audio_callback_writes_processed_audio_to_aux_output_slot(diagnostics):
+    # Insert design: a managed channel is read on its own input index but
+    # its processed audio is written to a *different* output index -- the
+    # channel's Aux/PC-output slot (card_out_slot), which feeds the insert
+    # return. Here channel 1 is read on index 0 but written to slot 3.
+    engine = _make_engine(diagnostics)
+    state = AppState()
+    state.channels[1].card_out_slot = 3
+    engine.state = state
+    engine.filter_banks[1].add_notch(1000.0)
+
+    tone = np.sin(2 * np.pi * 1000.0 * np.arange(64) / 48000).astype(np.float32)
+    indata = np.stack([tone] * 4, axis=1)
+    outdata = np.zeros((64, 4), dtype=np.float32)
+
+    engine._audio_callback(indata, outdata, 64, None, None)
+
+    # Processed audio lands on output index 2 (slot 3), not the read index 0.
+    assert not np.allclose(outdata[:, 2], np.zeros(64))
+    np.testing.assert_allclose(outdata[:, 0], np.zeros(64, dtype=np.float32))
 
 
 def test_audio_callback_pushes_copy_to_analysis_queue_without_blocking(diagnostics):
@@ -237,33 +262,46 @@ def test_analyze_block_processes_channel_with_ai_enabled(diagnostics):
     assert active[0]["frequency_hz"] == 1000.0
 
 
-def test_analyze_block_uses_card_slot_not_channel_number_for_gating(diagnostics):
-    # Channel 9 assigned to Card slot 1 -- the analysis loop processes
-    # slot 1's audio (that's what the opened stream's channel 0 is), and
-    # must gate/report by channel 9's ChannelState, not slot 1's own
-    # (nonexistent-in-filter_banks) ChannelState[1].
-    engine = _make_engine(diagnostics)
-    state = AppState()
-    state.channels[9].card_out_slot = 1
-    state.channels[9].ai_enabled = True
-    state.channels[9].sensitivity = 1.0
-    engine.state = state
+def test_analyze_block_gates_by_channel_number_directly(diagnostics):
+    # Insert design: filter_banks are keyed by console channel number and
+    # read on that channel's own input index, so gating is a direct
+    # state.channels[channel] lookup with no card-slot reverse mapping. A
+    # channel whose AI is off must be skipped even though it has a bank.
+    from app.audio.filters import NotchFilterBank
 
+    detector = MagicMock(spec=FeedbackDetector)
     candidate = FeedbackCandidate(
         frequency_hz=1000.0,
         peak_to_average_db=20.0,
         harmonic_structure_present=False,
         sustained_growth=True,
     )
-    engine.detector.analyze.return_value = [candidate]
+    detector.analyze.return_value = [candidate]
+    config = AppConfig(audio_sample_rate=48000, audio_block_size=64)
+    engine = AudioEngine(
+        config=config,
+        diagnostics=diagnostics,
+        filter_banks={
+            1: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0),
+            2: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0),
+        },
+        detector=detector,
+    )
+    state = AppState()
+    state.channels[1].ai_enabled = True
+    state.channels[1].sensitivity = 1.0
+    state.channels[2].ai_enabled = False  # has a bank, but AI off -> skipped
+    engine.state = state
 
-    block = np.zeros((64, 2), dtype=np.float32)
-    engine._analyze_block(block)
+    engine._analyze_block(np.zeros((64, 2), dtype=np.float32))
 
-    assert engine.detector.analyze.call_args.kwargs["threshold_db"] == pytest.approx(4.0)
+    assert detector.analyze.call_count == 1
+    assert detector.analyze.call_args.kwargs["channel_key"] == 1
+    assert detector.analyze.call_args.kwargs["threshold_db"] == pytest.approx(4.0)
     events = [e for e in diagnostics.get_recent(10) if e["payload"].get("description") == "notch_placed"]
     assert len(events) == 1
-    assert events[0]["payload"]["after"]["channel"] == 9  # reports the real channel, not the Card slot
+    assert events[0]["payload"]["after"]["channel"] == 1
+    assert engine.filter_banks[2].active_notches() == []  # channel 2 gated closed
 
 
 def test_analyze_block_skips_slot_with_no_channel_assigned(diagnostics):
@@ -449,13 +487,13 @@ def test_audio_callback_applies_echo_cancellation_when_channel_toggle_on(diagnos
     canceller.process.assert_called_once()
 
 
-def test_audio_callback_uses_card_slot_mapping_for_echo_toggle_too(diagnostics):
-    # Channel 9 (not 1) owns Card slot 1 -- the toggle must be read from
-    # channel 9's ChannelState, not slot 1's own ChannelState[1].
+def test_audio_callback_echo_toggle_gated_by_same_channel_state(diagnostics):
+    # Echo cancellers are keyed by console channel number too, so the toggle
+    # is read from that channel's own ChannelState -- no card-slot mapping.
     engine = _engine_with_echo_canceller(diagnostics)
     state = AppState()
-    state.channels[9].card_out_slot = 1
-    state.channels[9].echo_cancellation_enabled = True
+    state.channels[1].echo_cancellation_enabled = True
+    state.channels[2].echo_cancellation_enabled = False
     engine.state = state
     canceller = engine.echo_cancellers[1]
     canceller.process = MagicMock(side_effect=lambda signal, ref: signal)
@@ -506,8 +544,8 @@ def test_meters_loop_broadcasts_via_hook(diagnostics, monkeypatch):
 def test_analyze_block_calls_saturation_hook_when_bank_full(diagnostics):
     engine = _make_engine(diagnostics)
     state = AppState()
-    state.channels[9].card_out_slot = 1
-    state.channels[9].ai_enabled = True
+    state.channels[1].card_out_slot = 1
+    state.channels[1].ai_enabled = True
     engine.state = state
 
     bank = engine.filter_banks[1]
@@ -528,15 +566,15 @@ def test_analyze_block_calls_saturation_hook_when_bank_full(diagnostics):
     block = np.zeros((64, 2), dtype=np.float32)
     engine._analyze_block(block)
 
-    assert saturated == [9]  # console channel number, not the card slot
+    assert saturated == [1]  # console channel number
     assert len(bank.active_notches()) == 1  # no notch stacked past the cap
 
 
 def test_analyze_block_no_saturation_hook_when_room_left(diagnostics):
     engine = _make_engine(diagnostics)
     state = AppState()
-    state.channels[9].card_out_slot = 1
-    state.channels[9].ai_enabled = True
+    state.channels[1].card_out_slot = 1
+    state.channels[1].ai_enabled = True
     engine.state = state
 
     saturated: list[int] = []

@@ -58,6 +58,17 @@ class AppConfig:
 
     # --- Routing writes ---
     routing_write_pace_sec: float = 0.02  # delay between paced OSC writes
+    # Insert-based routing: the PC is looped into each managed channel via
+    # that channel's insert point over one of the 6 Aux buses, so at most 6
+    # channels can be processed through the console at once (banks of 2/4/6,
+    # matching the Aux-In Card remap). Channels beyond this are app-only.
+    max_insert_channels: int = 6
+    # Raw /outputs/aux/NN/src value that means "Insert" (see
+    # app.osc.addresses.AUX_OUT_SRC_INSERT -- not in the v4.09 doc enum, a
+    # newer-firmware addition). None = unconfirmed: apply_routing then skips
+    # the aux-out-src write (leaving it to be set on the desk) rather than
+    # guessing. Set this once read off a real console.
+    aux_out_insert_src_value: int | None = None
 
     # --- Preamp gain assist (app/osc/gain_assist.py) ---
     # OPT-IN last resort: when a channel's notch bank is saturated (all

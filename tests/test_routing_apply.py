@@ -22,24 +22,18 @@ def _make_osc(fake_x32, diagnostics, app_state) -> OscConnection:
 
 
 def _make_snapshot() -> RoutingSnapshot:
-    # 4 blocks + 1 AUX slot, matching addresses.ROUTING_GROUPS["in"]'s shape.
-    routing_in = [0, 1, 0, 0, 0]  # block 1-8: AN1-8, block 9-16: AN9-16
     return RoutingSnapshot(
-        schema_version=3,
+        schema_version=4,
         created_at="2026-01-01T00:00:00.000Z",
         name="test_snapshot",
         console={"model": "X32"},
         userrout_in=[0] * addresses.NUM_USERROUT_IN,
         userrout_out=[0] * addresses.NUM_USERROUT_OUT,
-        routing={"in": routing_in},
+        routing={"in": [0, 0, 0, 0, 0], "card": [0, 1, 2, 3]},
     )
 
 
-def test_apply_routing_inserts_channel_and_flips_block(fake_x32, diagnostics, app_state):
-    for addr in addresses.ALL_USERROUT_IN:
-        fake_x32.extra_responses[addr] = (0,)
-    fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[0]] = (0,)
-
+def test_apply_routing_inserts_channel_via_aux(fake_x32, diagnostics, app_state):
     osc = _make_osc(fake_x32, diagnostics, app_state)
     snapshot = _make_snapshot()
     try:
@@ -48,39 +42,50 @@ def test_apply_routing_inserts_channel_and_flips_block(fake_x32, diagnostics, ap
         osc.close()
 
     assert assignments == {1: 1}
-    assert fake_x32.extra_responses[addresses.userrout_in_addr(1)] == (129,)  # Card 1
-    assert fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[0]] == (20,)  # User In 1-8
+    # Card output block covering channel 1 -> Local 1-8 (AN1-8 = 0).
+    assert fake_x32.extra_responses[addresses.ROUTING_CARD_BLOCKS[0]] == (0,)
+    # Aux In fed from Card 1-2 (1 channel rounds up to the 2-wide bank).
+    assert fake_x32.extra_responses[addresses.ROUTING_IN_AUX] == (10,)
+    # Channel 1 insert: POST, AUX1, on.
+    assert fake_x32.extra_responses[addresses.channel_insert_pos_addr(1)] == (addresses.INSERT_POS_POST,)
+    assert fake_x32.extra_responses[addresses.channel_insert_sel_addr(1)] == (17,)  # AUX1
+    assert fake_x32.extra_responses[addresses.channel_insert_on_addr(1)] == (addresses.INSERT_ON,)
+    # Aux-out src left untouched when the "Insert" value is unconfirmed.
+    assert addresses.aux_out_src_addr(1) not in fake_x32.extra_responses
     assert app_state.channels[1].inserted is True
     assert app_state.channels[1].card_out_slot == 1
 
 
-def test_apply_routing_preserves_other_channels_sharing_the_block(fake_x32, diagnostics, app_state):
-    for addr in addresses.ALL_USERROUT_IN:
-        fake_x32.extra_responses[addr] = (0,)
-    fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[1]] = (1,)  # block 9-16 = AN9-16
-
+def test_apply_routing_writes_aux_out_insert_when_value_known(fake_x32, diagnostics, app_state):
     osc = _make_osc(fake_x32, diagnostics, app_state)
     snapshot = _make_snapshot()
     try:
-        apply_routing(osc, diagnostics, [9], snapshot, app_state)
+        apply_routing(osc, diagnostics, [1], snapshot, app_state, insert_src_value=77)
     finally:
         osc.close()
 
-    # Channel 9 -> Card 1.
-    assert fake_x32.extra_responses[addresses.userrout_in_addr(9)] == (129,)
-    # Channels 10-16 (sharing the same block, not selected) keep their
-    # original physical source (Local Analog 10-16) replicated via userrout.
-    for ch in range(10, 17):
-        assert fake_x32.extra_responses[addresses.userrout_in_addr(ch)] == (ch,)
-    assert fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[1]] == (21,)  # User In 9-16
+    assert fake_x32.extra_responses[addresses.aux_out_src_addr(1)] == (77,)
 
 
-def test_apply_routing_reuses_existing_card_slot(fake_x32, diagnostics, app_state):
-    for addr in addresses.ALL_USERROUT_IN:
-        fake_x32.extra_responses[addr] = (0,)
-    for addr in addresses.ROUTING_IN_BLOCKS:
-        fake_x32.extra_responses[addr] = (0,)
+def test_apply_routing_multiple_channels_assigns_banks(fake_x32, diagnostics, app_state):
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    snapshot = _make_snapshot()
+    try:
+        assignments = apply_routing(osc, diagnostics, [1, 5, 20], snapshot, app_state)
+    finally:
+        osc.close()
 
+    assert assignments == {1: 1, 5: 2, 20: 3}
+    # 3 channels -> Aux In fed from Card 1-4 (the 4-wide bank).
+    assert fake_x32.extra_responses[addresses.ROUTING_IN_AUX] == (11,)
+    # Card blocks covering channels 1, 5 (block 0) and 20 (block 2) set to Local.
+    assert fake_x32.extra_responses[addresses.ROUTING_CARD_BLOCKS[0]] == (0,)
+    assert fake_x32.extra_responses[addresses.ROUTING_CARD_BLOCKS[2]] == (2,)
+    # Channel 20 uses Aux 3 (slot 3) -> insert/sel AUX3 = 19.
+    assert fake_x32.extra_responses[addresses.channel_insert_sel_addr(20)] == (19,)
+
+
+def test_apply_routing_reuses_existing_aux_slot(fake_x32, diagnostics, app_state):
     osc = _make_osc(fake_x32, diagnostics, app_state)
     snapshot = _make_snapshot()
     try:
@@ -92,13 +97,19 @@ def test_apply_routing_reuses_existing_card_slot(fake_x32, diagnostics, app_stat
     assert first == second == {1: 1}
 
 
+def test_apply_routing_too_many_channels_raises(fake_x32, diagnostics, app_state):
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    snapshot = _make_snapshot()
+    try:
+        with pytest.raises(RoutingApplyError, match="at most"):
+            apply_routing(osc, diagnostics, [1, 2, 3, 4, 5, 6, 7], snapshot, app_state)
+    finally:
+        osc.close()
+
+
 def test_apply_routing_raises_on_mismatch(monkeypatch, fake_x32, diagnostics, app_state):
-    # Pre-seed fixed values, then connect and only *afterward* neuter send()
-    # so writes become silent no-ops -- simulates a write that never takes
-    # effect, without breaking the initial /xinfo handshake (which also
-    # goes through send()).
-    fake_x32.extra_responses[addresses.userrout_in_addr(1)] = (0,)
-    fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[0]] = (0,)
+    # Neuter send() only after the /xinfo handshake so writes become silent
+    # no-ops -- simulating writes that never take effect.
     osc = _make_osc(fake_x32, diagnostics, app_state)
     monkeypatch.setattr(osc, "send", lambda *a, **k: None)
 
@@ -110,11 +121,7 @@ def test_apply_routing_raises_on_mismatch(monkeypatch, fake_x32, diagnostics, ap
         osc.close()
 
 
-def test_bypass_channel_toggles_insert_and_restore(fake_x32, diagnostics, app_state):
-    for addr in addresses.ALL_USERROUT_IN:
-        fake_x32.extra_responses[addr] = (0,)
-    fake_x32.extra_responses[addresses.ROUTING_IN_BLOCKS[0]] = (0,)
-
+def test_bypass_channel_toggles_insert(fake_x32, diagnostics, app_state):
     osc = _make_osc(fake_x32, diagnostics, app_state)
     snapshot = _make_snapshot()
     try:
@@ -123,11 +130,11 @@ def test_bypass_channel_toggles_insert_and_restore(fake_x32, diagnostics, app_st
 
         now_inserted = bypass_channel(osc, diagnostics, 1, snapshot, app_state)
         assert now_inserted is False
-        assert fake_x32.extra_responses[addresses.userrout_in_addr(1)] == (0,)  # back to snapshot value
+        assert fake_x32.extra_responses[addresses.channel_insert_on_addr(1)] == (addresses.INSERT_OFF,)
 
         now_inserted = bypass_channel(osc, diagnostics, 1, snapshot, app_state)
         assert now_inserted is True
-        assert fake_x32.extra_responses[addresses.userrout_in_addr(1)] == (129,)  # re-inserted, same Card slot
+        assert fake_x32.extra_responses[addresses.channel_insert_on_addr(1)] == (addresses.INSERT_ON,)
     finally:
         osc.close()
 
@@ -143,21 +150,17 @@ def test_bypass_channel_without_prior_insert_raises(fake_x32, diagnostics, app_s
 
 
 def test_restore_snapshot_replays_all_values(fake_x32, diagnostics, app_state):
-    for addr in addresses.ALL_USERROUT_IN + addresses.ALL_USERROUT_OUT:
-        fake_x32.extra_responses[addr] = (99,)
-    for group, pairs in addresses.ROUTING_GROUPS.items():
-        for addr, _table in pairs:
-            fake_x32.extra_responses[addr] = (99,)
-
     osc = _make_osc(fake_x32, diagnostics, app_state)
     snapshot = RoutingSnapshot(
-        schema_version=3,
+        schema_version=4,
         created_at="2026-01-01T00:00:00.000Z",
         name="restore_test",
         console={"model": "X32"},
         userrout_in=list(range(addresses.NUM_USERROUT_IN)),
         userrout_out=list(range(addresses.NUM_USERROUT_OUT)),
         routing={"routswitch": [0], "card": [0, 1, 2, 3]},
+        aux_out_src=[0, 0, 0, 0, 0, 0],
+        channel_inserts=[{"on": 0, "pos": 1, "sel": 0}] + [None] * 31,
     )
     app_state.channels[1].inserted = True
     app_state.channels[1].card_out_slot = 5
@@ -170,5 +173,33 @@ def test_restore_snapshot_replays_all_values(fake_x32, diagnostics, app_state):
     assert fake_x32.extra_responses[addresses.userrout_in_addr(1)] == (0,)
     assert fake_x32.extra_responses[addresses.userrout_in_addr(32)] == (31,)
     assert fake_x32.extra_responses[addresses.ROUTING_ROUTSWITCH] == (0,)
+    assert fake_x32.extra_responses[addresses.aux_out_src_addr(1)] == (0,)
+    # Channel 1's captured insert (off) is replayed.
+    assert fake_x32.extra_responses[addresses.channel_insert_on_addr(1)] == (0,)
     assert app_state.channels[1].inserted is False
     assert app_state.channels[1].card_out_slot is None
+
+
+def test_restore_forces_off_inserted_channel_without_captured_insert(fake_x32, diagnostics, app_state):
+    """A channel the app inserted but whose insert wasn't captured in the
+    snapshot still gets switched off on restore (gig-safe)."""
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    snapshot = RoutingSnapshot(
+        schema_version=4,
+        created_at="2026-01-01T00:00:00.000Z",
+        name="restore_test",
+        console={"model": "X32"},
+        userrout_in=[None] * addresses.NUM_USERROUT_IN,
+        userrout_out=[None] * addresses.NUM_USERROUT_OUT,
+        routing={},
+        aux_out_src=[],
+        channel_inserts=[],
+    )
+    app_state.channels[3].inserted = True
+    app_state.channels[3].card_out_slot = 1
+    try:
+        restore_snapshot(osc, diagnostics, snapshot, app_state)
+    finally:
+        osc.close()
+
+    assert fake_x32.extra_responses[addresses.channel_insert_on_addr(3)] == (addresses.INSERT_OFF,)

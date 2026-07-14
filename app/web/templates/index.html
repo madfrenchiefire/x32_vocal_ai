@@ -322,7 +322,7 @@
         <table id="channel-table">
           <thead>
             <tr>
-              <th></th><th>Ch</th><th>Name</th><th>State</th><th>Level</th><th>Card Slot</th><th>MIDI Slot</th><th>Notches</th>
+              <th></th><th>Ch</th><th>Name</th><th>State</th><th>Level</th><th>Aux Slot</th><th>MIDI Slot</th><th>Notches</th>
               <th>AI</th><th>Echo</th><th>Mode</th><th>Sensitivity</th><th>Action</th>
             </tr>
           </thead>
@@ -718,7 +718,9 @@
       if (channel.card_out_slot !== null) {
         const meter = document.createElement("div");
         meter.className = "level-meter";
-        meter.dataset.cardSlot = channel.card_out_slot;
+        // Levels are keyed by console channel number (the engine reads each
+        // managed channel off its own Card-input index).
+        meter.dataset.channel = channel.index;
         const fill = document.createElement("div");
         fill.className = "level-meter-fill";
         meter.appendChild(fill);
@@ -966,8 +968,12 @@
         return;
       }
       try {
-        await api("/api/routing/apply", { method: "POST", body: JSON.stringify({ channels }) });
-        setStatus("routing-status", `Applied routing for channels: ${channels.join(", ")}`, "success");
+        const data = await api("/api/routing/apply", { method: "POST", body: JSON.stringify({ channels }) });
+        let msg = `Applied insert routing for channels: ${channels.join(", ")}`;
+        if (data.aux_out_insert_unconfirmed) {
+          msg += " — NOTE: the Aux Out \"Insert\" value isn't configured yet, so set each used Aux Out to Insert on the desk (or set aux_out_insert_src_value in config).";
+        }
+        setStatus("routing-status", msg, data.aux_out_insert_unconfirmed ? "error" : "success");
         await loadChannels();
       } catch (err) {
         setStatus("routing-status", `Apply failed: ${err}`, "error");
@@ -1099,14 +1105,14 @@
       }
     }
 
-    // Levels are keyed by Card slot number (a string, since JSON has no
-    // int keys) -- "is signal actually arriving on this slot," measured
-    // directly from the audio this app is processing, not the console's
-    // own (still-unconfirmed) /meters OSC blobs.
+    // Levels are keyed by console channel number (a string, since JSON has
+    // no int keys) -- "is signal actually arriving on this channel,"
+    // measured directly from the audio this app is processing, not the
+    // console's own /meters OSC blobs.
     function applyLevels(levels) {
       latestLevels = levels;
       document.querySelectorAll(".level-meter").forEach((meter) => {
-        const dbfs = levels[meter.dataset.cardSlot];
+        const dbfs = levels[meter.dataset.channel];
         const fill = meter.querySelector(".level-meter-fill");
         if (dbfs === undefined) {
           fill.style.width = "0%";

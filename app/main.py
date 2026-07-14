@@ -12,12 +12,13 @@ service that fails to start (console unreachable, device disappeared,
 etc.) is logged and skipped rather than aborting the whole process --
 whatever *is* available still comes up, per CLAUDE.md's gig-safe spirit.
 
-Filter banks and echo cancellers are provisioned for all 32 possible Card
-channel slots up front, keyed by Card slot number (not X32 channel
-number) -- the audio stream's channel count is fixed for the life of the
-process, but which Card slot a given mic channel lands on is only decided
-at "Apply Routing" time in the web UI, so every slot needs to be ready in
-advance.
+Filter banks and echo cancellers are provisioned for all 32 console
+channels up front, keyed by console channel number -- the insert-based
+routing reads each managed channel off its own Card-input index, so the
+bank that processes channel N is simply filter_banks[N]. The audio
+stream's channel count is fixed for the life of the process; which
+channels are actually looped through the app is decided at "Apply Routing"
+time in the web UI, so every channel's bank needs to be ready in advance.
 """
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ from app.state import AppState
 from app.watchdog import Watchdog
 from app.web.server import run as run_web
 
-NUM_CARD_SLOTS = 32
+NUM_CHANNELS = 32
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -131,18 +132,18 @@ def _start_audio(config: AppConfig, diagnostics: DiagnosticsLogger, state: AppSt
         return None
 
     filter_banks = {
-        slot: NotchFilterBank(
+        channel: NotchFilterBank(
             sample_rate=config.audio_sample_rate,
             max_notches=config.max_notches_per_channel,
             depth_db=config.notch_depth_db,
             q=config.notch_q,
         )
-        for slot in range(1, NUM_CARD_SLOTS + 1)
+        for channel in range(1, NUM_CHANNELS + 1)
     }
     echo_cancellers = (
         {
-            slot: EchoCanceller(filter_length_taps=config.echo_filter_length_taps)
-            for slot in range(1, NUM_CARD_SLOTS + 1)
+            channel: EchoCanceller(filter_length_taps=config.echo_filter_length_taps)
+            for channel in range(1, NUM_CHANNELS + 1)
         }
         if config.echo_cancellation_enabled
         else {}

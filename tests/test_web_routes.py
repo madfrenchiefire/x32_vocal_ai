@@ -306,21 +306,19 @@ def test_update_channel_settings_applies_overrides_and_live_bank(tmp_path, app_s
     assert bank.default_q == 5.0
 
 
-def test_update_channel_settings_uses_card_slot_not_channel_number(tmp_path, app_state, diagnostics):
-    # Channel 9 assigned to Card slot 3 (apply_routing can reuse any free
-    # slot, not necessarily one matching the channel number) -- settings
-    # must land on slot 3's bank, and slot 9's bank (a different channel's)
-    # must be untouched.
+def test_update_channel_settings_applies_to_channel_keyed_bank(tmp_path, app_state, diagnostics):
+    # Insert design: filter_banks are keyed by console channel number, so
+    # channel 9's settings land on filter_banks[9] and no other channel's
+    # bank is touched.
     engine = AudioEngine(
         config=AppConfig(),
         diagnostics=diagnostics,
         filter_banks={
-            3: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0),
             9: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0),
+            10: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0),
         },
         detector=MagicMock(),
     )
-    app_state.channels[9].card_out_slot = 3
     app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
     client = app.test_client()
 
@@ -328,27 +326,28 @@ def test_update_channel_settings_uses_card_slot_not_channel_number(tmp_path, app
         "/api/channels/9/settings", data=json.dumps({"max_notches": 4}), content_type="application/json"
     )
     assert response.status_code == 200
-    assert engine.filter_banks[3].max_notches == 4
-    assert engine.filter_banks[9].max_notches == 12  # untouched
+    assert engine.filter_banks[9].max_notches == 4
+    assert engine.filter_banks[10].max_notches == 12  # untouched
 
 
-def test_update_channel_settings_skips_live_bank_when_channel_not_yet_inserted(tmp_path, app_state, diagnostics):
+def test_update_channel_settings_records_state_without_a_bank(tmp_path, app_state, diagnostics):
+    # A channel whose bank isn't provisioned on this engine still records its
+    # settings in state; there's simply no live bank to push them into.
     engine = AudioEngine(
         config=AppConfig(),
         diagnostics=diagnostics,
         filter_banks={7: NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)},
         detector=MagicMock(),
     )
-    # channel 7 has never been inserted -- card_out_slot is still None.
     app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
     client = app.test_client()
 
     response = client.post(
-        "/api/channels/7/settings", data=json.dumps({"max_notches": 4}), content_type="application/json"
+        "/api/channels/8/settings", data=json.dumps({"max_notches": 4}), content_type="application/json"
     )
     assert response.status_code == 200
-    assert app_state.channels[7].max_notches_override == 4  # state still recorded
-    assert engine.filter_banks[7].max_notches == 12  # but no live bank touched
+    assert app_state.channels[8].max_notches_override == 4  # state recorded
+    assert engine.filter_banks[7].max_notches == 12  # unrelated channel's bank untouched
 
 
 def test_update_channel_settings_rejects_bad_mode(tmp_path, app_state, diagnostics):
@@ -668,8 +667,9 @@ def test_commit_channel_eq_writes_console_and_stores_snapshot(fake_x32, tmp_path
     _register_default_console_eq(fake_x32, 9)
     bank = NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)
     bank.add_notch(1200.0)
-    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={3: bank}, detector=MagicMock())
-    app_state.channels[9].card_out_slot = 3  # channel 9 lives on Card slot 3
+    # filter_banks are keyed by console channel number in the insert design.
+    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={9: bank}, detector=MagicMock())
+    app_state.channels[9].card_out_slot = 3
 
     osc = _make_osc(fake_x32, diagnostics, app_state)
     app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=osc, audio_engine=engine)
@@ -709,7 +709,7 @@ def test_restore_channel_eq_replays_snapshot(fake_x32, tmp_path, app_state, diag
     _register_default_console_eq(fake_x32, 9)
     bank = NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)
     bank.add_notch(1200.0)
-    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={3: bank}, detector=MagicMock())
+    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={9: bank}, detector=MagicMock())
     app_state.channels[9].card_out_slot = 3
 
     osc = _make_osc(fake_x32, diagnostics, app_state)
@@ -858,8 +858,8 @@ def test_rta_stop_when_never_started_is_a_noop(tmp_path, app_state, diagnostics)
 def test_channel_notches_endpoint_returns_live_bank_notches(tmp_path, app_state, diagnostics):
     bank = NotchFilterBank(sample_rate=48000, max_notches=12, depth_db=-12.0)
     bank.add_notch(1250.0)
-    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={3: bank}, detector=MagicMock())
-    app_state.channels[9].card_out_slot = 3
+    # filter_banks are keyed by console channel number in the insert design.
+    engine = AudioEngine(config=AppConfig(), diagnostics=diagnostics, filter_banks={9: bank}, detector=MagicMock())
     app, _sio, _config = _app(tmp_path, app_state, diagnostics, audio_engine=engine)
     client = app.test_client()
 
@@ -867,7 +867,7 @@ def test_channel_notches_endpoint_returns_live_bank_notches(tmp_path, app_state,
     assert len(data["notches"]) == 1
     assert data["notches"][0]["frequency_hz"] == 1250.0
 
-    # A channel with no card slot / bank simply has no notches.
+    # A channel with no bank simply has no notches.
     assert client.get("/api/channels/5/notches").get_json() == {"notches": []}
 
 

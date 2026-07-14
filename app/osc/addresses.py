@@ -156,6 +156,111 @@ def output_src_addr(output_number: int) -> str:
     return f"/outputs/main/{output_number:02d}/src"
 
 
+# --- channel inserts (the insert-based routing design) --------------------
+#
+# CLAUDE.md's routing automation loops the PC into each managed channel
+# through that channel's *insert* point via one of the 6 Aux buses, instead
+# of swapping the channel's input source. Doc-confirmed (X32_OSC.pdf):
+#   /ch/[01..32]/insert/on   enum {OFF, ON}          -> int 0/1
+#   /ch/[01..32]/insert/pos  enum {PRE, POST}        -> int 0/1
+#   /ch/[01..32]/insert/sel  enum int [0..22]:
+#       {OFF, FX1L, FX1R, ... FX8L, FX8R, AUX1, AUX2, AUX3, AUX4, AUX5, AUX6}
+#       -> OFF=0, FX1L..FX8R=1..16, AUX1..AUX6 = 17..22.
+NUM_AUX = 6
+INSERT_ON = 1
+INSERT_OFF = 0
+INSERT_POS_PRE = 0
+INSERT_POS_POST = 1
+INSERT_SEL_OFF = 0
+INSERT_SEL_AUX_BASE = 16  # AUX1 = 16 + 1 = 17
+
+
+def channel_insert_on_addr(channel: int) -> str:
+    if not 1 <= channel <= 32:
+        raise ValueError(f"channel must be 1-32, got {channel}")
+    return f"/ch/{channel:02d}/insert/on"
+
+
+def channel_insert_pos_addr(channel: int) -> str:
+    if not 1 <= channel <= 32:
+        raise ValueError(f"channel must be 1-32, got {channel}")
+    return f"/ch/{channel:02d}/insert/pos"
+
+
+def channel_insert_sel_addr(channel: int) -> str:
+    if not 1 <= channel <= 32:
+        raise ValueError(f"channel must be 1-32, got {channel}")
+    return f"/ch/{channel:02d}/insert/sel"
+
+
+def insert_sel_aux_value(aux_number: int) -> int:
+    """insert/sel enum value that selects Aux bus N (1-6) as the insert
+    loop, e.g. AUX1 -> 17."""
+    if not 1 <= aux_number <= NUM_AUX:
+        raise ValueError(f"aux_number must be 1-{NUM_AUX}, got {aux_number}")
+    return INSERT_SEL_AUX_BASE + aux_number
+
+
+# --- aux output source patch (/outputs/aux/NN/src) ------------------------
+#
+# Setting a channel insert to Aux N sends that channel's insert signal to
+# Aux bus N; for the loop to behave as a true send/return insert the Aux
+# *output* itself must be put in "Insert" mode. The console's OUT/AUX patch
+# screen (Resources/AuxOut.png) offers "Insert" as the first output-signal
+# category. The X32_OSC.pdf enum for /outputs/aux/NN/src is only [0..76]
+# (OFF, Main L/R, M/C, MixBus, Matrix, DirectOut..., Monitor, Talkback) and
+# contains NO "Insert" entry -- it is a newer-firmware addition whose raw
+# integer the doc predates. AUX_OUT_SRC_INSERT is therefore left None until
+# confirmed on hardware (read /outputs/aux/02/src on Jason's console, which
+# already has Aux Out 2 = Insert); AppConfig.aux_out_insert_src_value
+# overrides it. apply_routing only writes/verifies the aux-out src when a
+# value is known, and never guesses one.
+AUX_OUT_SRC_INSERT: int | None = None
+
+
+def aux_out_src_addr(aux_number: int) -> str:
+    if not 1 <= aux_number <= NUM_AUX:
+        raise ValueError(f"aux_number must be 1-{NUM_AUX}, got {aux_number}")
+    return f"/outputs/aux/{aux_number:02d}/src"
+
+
+# --- aux-input Card remap (/config/routing/IN/AUX, rtina table) -----------
+#
+# The insert *return* arrives back from the PC on Card channels 1-N and is
+# remapped onto Aux In 1-N. rtina values (confirmed): CARD1-2=10, CARD1-4=11,
+# CARD1-6=12 (banked in 2/4/6-channel groups). For N managed channels pick
+# the smallest Card bank covering them.
+AUX_IN_CARD_1_2 = 10
+AUX_IN_CARD_1_4 = 11
+AUX_IN_CARD_1_6 = 12
+
+
+def aux_in_card_remap_value(num_channels: int) -> int:
+    """rtina value for /config/routing/IN/AUX that feeds Aux In 1..N from
+    Card 1..N (rounded up to the next 2/4/6 bank)."""
+    if not 1 <= num_channels <= NUM_AUX:
+        raise ValueError(f"num_channels must be 1-{NUM_AUX}, got {num_channels}")
+    if num_channels <= 2:
+        return AUX_IN_CARD_1_2
+    if num_channels <= 4:
+        return AUX_IN_CARD_1_4
+    return AUX_IN_CARD_1_6
+
+
+# --- Card output block -> Local (rtaea table) -----------------------------
+#
+# The PC *reads* each managed channel from the Card, so the Card output
+# block covering that channel must carry the console's Local channels 1:1
+# (Resources/CardOutput.png). rtaea "AN1-8".."AN25-32" are the first four
+# entries (values 0-3), one per 8-channel block.
+def card_block_local_value(block_index: int) -> int:
+    """rtaea value that sets Card output block `block_index` (0-3, i.e.
+    Card 1-8/9-16/17-24/25-32) to the matching Local channels."""
+    if not 0 <= block_index <= 3:
+        raise ValueError(f"block_index must be 0-3, got {block_index}")
+    return block_index  # AN1-8=0, AN9-16=1, AN17-24=2, AN25-32=3
+
+
 # --- userrout: bulk (scene-dump form, untested for live bare-query reply) -
 
 USERROUT_IN = "/config/userrout/in"

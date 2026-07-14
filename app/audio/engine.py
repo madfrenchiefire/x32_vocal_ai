@@ -38,7 +38,7 @@ from app.audio.echo_cancellation import EchoCanceller
 from app.audio.filters import NotchFilterBank
 from app.config import AppConfig
 from app.diagnostics.logger import DiagnosticsLogger
-from app.state import AppState, ChannelState
+from app.state import AppState
 
 ANALYSIS_QUEUE_SIZE = 64
 ANALYSIS_POLL_TIMEOUT_SEC = 0.5
@@ -203,63 +203,66 @@ class AudioEngine:
 
     def _audio_callback(self, indata: np.ndarray, outdata: np.ndarray, frames: int, time_info, status) -> None:
         """PortAudio callback. Real-time constraint: filter processing
-        only, no analysis/ML, no diagnostics logging on the hot path."""
+        only, no analysis/ML, no diagnostics logging on the hot path.
+
+        Insert-based routing: each managed channel is *read* off its own
+        Card-input index (Card output block = Local 1:1, so input index i =
+        console channel i+1) and its processed audio is *written* back to a
+        different index -- the channel's Aux/PC-output slot
+        (ChannelState.card_out_slot), which feeds that channel's insert
+        return. Every other output carries nothing (the console only reads
+        Card 1-N for the aux returns), so unused outputs are zeroed."""
         reference_block = self._read_reference_block(indata)
+        outdata[:] = 0.0
         for channel_index in range(indata.shape[1]):
             channel_number = channel_index + 1
             raw_signal = indata[:, channel_index]
             # Raw input level, not the filtered/processed output -- this is
-            # "is signal actually arriving on this Card slot," independent
-            # of whatever DSP happens to it afterward. Just a dict write,
-            # no I/O -- the separate _meters_loop thread does the (slower,
+            # "is signal actually arriving on this channel," independent of
+            # whatever DSP happens to it afterward. Just a dict write, no
+            # I/O -- the separate _meters_loop thread does the (slower,
             # unbounded-latency-tolerant) broadcasting.
             self._levels[channel_number] = _rms_dbfs(raw_signal)
-            signal = raw_signal
-
-            canceller = self.echo_cancellers.get(channel_number)
-            if canceller is not None and reference_block is not None and self._echo_cancellation_wanted(channel_number):
-                signal = canceller.process(signal, reference_block)
 
             bank = self.filter_banks.get(channel_number)
-            outdata[:, channel_index] = bank.process(signal) if bank is not None else signal
+            canceller = self.echo_cancellers.get(channel_number)
+            if bank is None and canceller is None:
+                continue  # unmanaged channel -- console ignores this Card output
+
+            signal = raw_signal
+            if canceller is not None and reference_block is not None and self._echo_cancellation_wanted(channel_number):
+                signal = canceller.process(signal, reference_block)
+            processed = bank.process(signal) if bank is not None else signal
+
+            out_index = self._output_index_for_channel(channel_number)
+            if 0 <= out_index < outdata.shape[1]:
+                outdata[:, out_index] = processed
 
         try:
             self._analysis_queue.put_nowait(indata.copy())
         except queue.Full:
             pass  # analysis thread is behind -- drop this block rather than block the callback
 
-    def _channel_state_for_slot(self, card_slot: int) -> ChannelState | None:
-        """Card slot N is NOT necessarily console channel N -- apply_routing
-        can assign any channel to any free slot (app.osc.routing_apply
-        reuses whichever Card slot is free, not one matching the channel's
-        own number). Finds which channel, if any, currently owns this slot,
-        so per-channel settings (ai_enabled, sensitivity, mode,
-        echo_cancellation_enabled) gate the *right* channel's audio instead
-        of accidentally reading slot N's own ChannelState.channels[N] --
-        those are two different things whenever a channel lands on a
-        non-matching slot, which was a real, previously-shipped bug this
-        fixes. O(32) linear scan, negligible next to the FFT/filtering work
-        already happening per block."""
-        if self.state is None:
-            return None
-        for channel_state in self.state.channels.values():
-            if channel_state.card_out_slot == card_slot:
-                return channel_state
-        return None
+    def _output_index_for_channel(self, channel_number: int) -> int:
+        """Output stream index a managed channel's processed audio is written
+        to: the channel's Aux/PC-output slot (ChannelState.card_out_slot,
+        1-based) minus one. Standalone/test callers with no AppState -- or a
+        channel with no slot assigned yet -- fall back to writing back on the
+        same index the channel was read from."""
+        if self.state is not None:
+            channel_state = self.state.channels.get(channel_number)
+            if channel_state is not None and channel_state.card_out_slot is not None:
+                return channel_state.card_out_slot - 1
+        return channel_number - 1
 
     def _echo_cancellation_wanted(self, channel_number: int) -> bool:
-        """Gates the per-slot EchoCanceller by ChannelState.
-        echo_cancellation_enabled -- previously a dead field: cancellers
-        were provisioned for every slot the moment the *global*
-        AppConfig.echo_cancellation_enabled toggle was on, so this
-        per-channel opt-in never actually did anything. None (no AppState
-        wired up, e.g. standalone/test callers) means "no gating," matching
-        this class's ai_enabled/None convention elsewhere; state wired up
-        but no channel currently assigned to this slot means "nothing to
-        gate by," so it stays off rather than defaulting on."""
+        """Gates the per-channel EchoCanceller by ChannelState.
+        echo_cancellation_enabled. None (no AppState wired up, e.g.
+        standalone/test callers) means "no gating," matching this class's
+        ai_enabled/None convention elsewhere."""
         if self.state is None:
             return True
-        channel_state = self._channel_state_for_slot(channel_number)
+        channel_state = self.state.channels.get(channel_number)
         return channel_state is not None and channel_state.echo_cancellation_enabled
 
     def _read_reference_block(self, indata: np.ndarray) -> np.ndarray | None:
@@ -293,21 +296,18 @@ class AudioEngine:
     def _analyze_block(self, block: np.ndarray) -> None:
         now = time.monotonic()
         for channel_index in range(block.shape[1]):
-            card_slot = channel_index + 1
-            bank = self.filter_banks.get(card_slot)
+            channel_number = channel_index + 1
+            bank = self.filter_banks.get(channel_number)
             if bank is None:
                 continue
 
             channel_state = None
             if self.state is not None:
-                channel_state = self._channel_state_for_slot(card_slot)
+                channel_state = self.state.channels.get(channel_number)
                 if channel_state is None or not channel_state.ai_enabled:
                     continue
 
-            # Reported/logged channel identity: the console channel number
-            # (channel_state.index) when known, falling back to the raw
-            # Card slot for standalone/test callers with no AppState.
-            reported_channel = channel_state.index if channel_state is not None else card_slot
+            reported_channel = channel_number
 
             threshold_db = None
             if channel_state is not None:
@@ -318,7 +318,7 @@ class AudioEngine:
                     threshold_db -= RING_OUT_THRESHOLD_ADJUSTMENT_DB
 
             candidates = self.detector.analyze(
-                block[:, channel_index], channel_key=card_slot, threshold_db=threshold_db
+                block[:, channel_index], channel_key=channel_number, threshold_db=threshold_db
             )
             for candidate in candidates:
                 existing_id = bank.find_notch_near(candidate.frequency_hz, NOTCH_MATCH_TOLERANCE_HZ)

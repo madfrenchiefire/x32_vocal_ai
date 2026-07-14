@@ -27,7 +27,7 @@ from app.diagnostics.logger import DiagnosticsLogger
 from app.osc import addresses
 from app.osc.connection import OscConnection
 
-SNAPSHOT_SCHEMA_VERSION = 3
+SNAPSHOT_SCHEMA_VERSION = 4
 
 
 @dataclass
@@ -43,6 +43,16 @@ class RoutingSnapshot:
     # enum ints in the same order as ROUTING_GROUPS[group].
     routing: dict[str, list]
     routing_addresses_verified: bool = True
+    # Insert-based routing (schema 4): the app loops the PC into each
+    # managed channel through its insert point over an Aux bus, so restore
+    # must put both the aux-output patch and each channel's insert config
+    # back. `/config/routing/IN/AUX` and the CARD blocks are already carried
+    # in `routing` above; these two are the pieces that aren't.
+    #   aux_out_src: 6 raw /outputs/aux/NN/src ints (or None per entry).
+    #   channel_inserts: 32 entries, each {"on": int, "pos": int, "sel": int}
+    #   or None (channel unreachable at snapshot time).
+    aux_out_src: list = dataclasses.field(default_factory=list)
+    channel_inserts: list = dataclasses.field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -58,6 +68,8 @@ class RoutingSnapshot:
             userrout_out=data["userrout_out"],
             routing=data["routing"],
             routing_addresses_verified=data.get("routing_addresses_verified", True),
+            aux_out_src=data.get("aux_out_src", []),
+            channel_inserts=data.get("channel_inserts", []),
         )
 
     def decode_routing(self) -> dict[str, list]:
@@ -109,6 +121,9 @@ def read_routing_snapshot(
             osc, diagnostics, group_addrs, bulk_addr, len(group_addrs), correlation_id,
         )
 
+    aux_out_src = _read_aux_out_src(osc, correlation_id)
+    channel_inserts = _read_channel_inserts(osc, correlation_id)
+
     snapshot = RoutingSnapshot(
         schema_version=SNAPSHOT_SCHEMA_VERSION,
         created_at=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
@@ -118,6 +133,8 @@ def read_routing_snapshot(
         userrout_out=userrout_out,
         routing=routing,
         routing_addresses_verified=addresses.ROUTING_ADDRESSES_VERIFIED,
+        aux_out_src=aux_out_src,
+        channel_inserts=channel_inserts,
     )
 
     diagnostics.log_state_change(
@@ -165,6 +182,34 @@ def _query_with_bulk_fallback(
             values = [existing if existing is not None else bulk_reply[i] for i, existing in enumerate(values)]
 
     return values
+
+
+def _read_aux_out_src(osc: OscConnection, correlation_id: str) -> list:
+    """The 6 /outputs/aux/NN/src values (or None per entry if unanswered)."""
+    addrs = [addresses.aux_out_src_addr(n) for n in range(1, addresses.NUM_AUX + 1)]
+    results = osc.query_many(addrs, correlation_id=correlation_id)
+    return [_first(results[addr]) for addr in addrs]
+
+
+def _read_channel_inserts(osc: OscConnection, correlation_id: str) -> list:
+    """Each channel's insert {on,pos,sel}, or None if none of the three
+    answered. A partially-answered channel keeps whatever fields came back
+    (missing ones None) so restore can still replay what it knows."""
+    on_addrs = [addresses.channel_insert_on_addr(ch) for ch in range(1, 33)]
+    pos_addrs = [addresses.channel_insert_pos_addr(ch) for ch in range(1, 33)]
+    sel_addrs = [addresses.channel_insert_sel_addr(ch) for ch in range(1, 33)]
+    results = osc.query_many(on_addrs + pos_addrs + sel_addrs, correlation_id=correlation_id)
+
+    inserts: list = []
+    for ch in range(1, 33):
+        on = _first(results[addresses.channel_insert_on_addr(ch)])
+        pos = _first(results[addresses.channel_insert_pos_addr(ch)])
+        sel = _first(results[addresses.channel_insert_sel_addr(ch)])
+        if on is None and pos is None and sel is None:
+            inserts.append(None)
+        else:
+            inserts.append({"on": on, "pos": pos, "sel": sel})
+    return inserts
 
 
 def _first(args: tuple | None):

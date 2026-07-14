@@ -55,26 +55,27 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   devices actually have enough channels for what's been provisioned, raising a
   clear `AudioEngineError` instead of an opaque PortAudio failure (or worse, silently
   opening fewer channels than expected) if not.
-- **Card slot vs console channel number — confirmed as a real bug via code audit
-  (2026-07-07), fixed in `AudioEngine._channel_state_for_slot`.** `AppState.channels`
-  is keyed by console channel number (1-32); `AudioEngine.filter_banks`/
-  `echo_cancellers` and the audio stream's own channel indices are keyed by Card
-  slot number. These only coincide when a channel's `card_out_slot` happens to equal
-  its channel number. `_analyze_block`'s gating (AI enabled? which mode/sensitivity?
-  echo cancellation on?) originally indexed `state.channels[card_slot]` directly —
-  silently reading the wrong channel's settings (or none at all) whenever routing
-  assigned a channel to a non-matching Card slot. Fixed by reverse-looking-up the
-  `ChannelState` whose `card_out_slot` matches the slot actually being processed;
-  a slot with no channel currently assigned to it now correctly gates closed
-  instead of falling through to whatever channel number happened to match.
+- **Input index = console channel number; output index = Aux slot (insert-based
+  routing, 2026-07-14).** Because the Card output block is set to Local 1:1, Card
+  channel N carries console Local N, so the app *reads* channel N on input index
+  N-1. `AudioEngine.filter_banks`/`echo_cancellers` are therefore keyed by console
+  channel number (`AppState.channels`' own key), and `_analyze_block`/the callback
+  gate on `state.channels[channel_number]` directly — no reverse lookup. The
+  processed audio is *written* to a **different** index: the channel's Aux/PC-output
+  slot K (`ChannelState.card_out_slot`, 1..6), which feeds Aux In K → the channel's
+  insert return (`AudioEngine._output_index_for_channel`). Every other output is
+  zeroed — the console only reads Card 1-N for the aux returns. (This replaced an
+  earlier card-slot-vs-channel reverse-lookup that the userrout-swap design needed;
+  the insert design assigns each channel its own input index, so that whole class
+  of bug is gone.)
 - Per-channel **live level meters** (implemented, `AudioEngine._rms_dbfs`/
   `_meters_loop`): RMS dBFS computed directly from each channel's raw captured
   audio in the callback (cheap dict write, no allocation), broadcast at ~150ms
   intervals via an injectable `on_levels_update` hook (`app/web/sockets.py` emits
   it as the `channel_meters` WebSocket event; `GET /api/channels/meters` is the
-  REST fallback for the moment before the first broadcast lands) — keyed by Card
-  slot number, same as `filter_banks`. This measures the app's own captured audio,
-  not the OSC `/meters` blob described below, whose layout remains unconfirmed.
+  REST fallback for the moment before the first broadcast lands) — keyed by console
+  channel number (the input index the channel is read on). This measures the app's
+  own captured audio, not the OSC `/meters` blob described below.
 - `sounddevice` (PortAudio) via the ASIO driver, 48 kHz, 64–128 sample buffer.
   Target total round trip ≤ ~10 ms; measure it (loopback click test).
 - Audio callback does per-channel biquad notch filtering plus, if echo cancellation
@@ -193,33 +194,44 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   bare OSC query on the bulk address replies at all; `app/osc/routing_snapshot.py`
   queries individually first and only falls back to the bulk address per group if
   one or more individual queries in that group time out.
-- **Routing automation** (the "Apply" button):
-  1. Snapshot: read every individual `/config/userrout/in/NN`, `/config/userrout/out/NN`,
-     and the block-routing addresses above. Store as named JSON snapshot.
-  2. For each selected channel, write its `/config/userrout/in/NN` address to the
-     matching Card return. Each channel's address is independent — no need to touch
-     other channels' addresses in the same block.
-  3. Use `/config/userrout/out/NN` + the CARD block routing to cherry-pick arbitrary
-     selected channels' preamps onto Card outs.
-  4. Flip block routing (`/config/routing/*/<block>`) to the User In/Out bank
-     **matching that block's own channel range** (e.g. block 9-16 needs "User In
-     9-16" specifically, not just any "User" value — see `user_in_block_value()`
-     in "Open items to verify"), after everything is staged. Confirmed on real
-     hardware: a channel's own `userrout/in/NN` value still displays correctly
-     on the per-channel config screen even when its block is on the *wrong*
-     User bank, but real audio for that channel would come from the other
-     bank's slots instead — the block/bank match is load-bearing, not cosmetic.
-  - Pace writes (a few ms between messages, UDP); read back key values to confirm
-    before reporting success — but allow a short settle delay and retry before
-    treating a stale immediate readback as a failed write (confirmed on real
-    hardware: a block-routing write can visibly take effect on the console
-    before a query sent right after the write reflects it).
-- **Per-channel bypass/restore** = write that one channel's `/config/userrout/in/NN`
-  (or `/out/NN`) address back to its snapshot value — a genuinely single-value
-  write, no read-modify-write of a larger array needed, *provided the channel's
-  block is already on the matching User bank* (true for a channel that was
-  already inserted via this app; not true if the block's bank was never set or
-  was set wrong). Implemented as a toggle (bypass ↔ re-insert).
+- **Routing automation — INSERT-BASED (rewritten 2026-07-14, `app/osc/routing_apply.py`).**
+  The earlier approach (swap each channel's `/config/userrout/in/NN` to a Card
+  return + flip its block to a User In bank) **did not work in practice and was
+  removed.** Routing is now done through each channel's **insert** point over one
+  of the 6 Aux buses — confirmed against the target console's own setup screens
+  (`Resources/AuxIn.png`, `AuxOut.png`, `CardOutput.png`, `ChannelInsert.png`,
+  `Input.png`). At most **6 channels** at once (one Aux bus each,
+  `AppConfig.max_insert_channels`, banks of 2/4/6). The "Apply" button:
+  1. Snapshot (extended, schema 4): the existing routing/userrout reads **plus**
+     all 6 `/outputs/aux/NN/src` and all 32 channels' `/ch/NN/insert/{on,pos,sel}`.
+  2. Assign each selected channel an Aux/PC-output slot K (1..6), stable across
+     re-applies. Set the **Card output block** covering that channel to Local
+     (`/config/routing/CARD/<block>` = AN…, `card_block_local_value`) so the PC
+     can read the channel off the card 1:1.
+  3. Set the **Aux-In remap** `/config/routing/IN/AUX` = Card 1-N (rtina 10/11/12
+     via `aux_in_card_remap_value`) — the insert *returns* arrive back from the PC
+     on Card 1-N, remapped onto Aux In 1-N.
+  4. Set each used **Aux output** to Insert (`/outputs/aux/K/src` =
+     `AUX_OUT_SRC_INSERT`) — **only when that raw value is known** (see "Open items
+     to verify": the v4.09 doc enum has no "Insert" entry; it's a newer-firmware
+     addition). If unconfirmed, the write is skipped and the apply response flags
+     `aux_out_insert_unconfirmed` so the UI tells the user to set it on the desk;
+     the value is never guessed. `AppConfig.aux_out_insert_src_value` overrides.
+  5. Switch each channel's insert on: `/ch/N/insert/pos` = POST,
+     `/ch/N/insert/sel` = AUX K (`insert_sel_aux_value`, enum 17-22), then
+     `/ch/N/insert/on` = ON last.
+  - Signal path per managed channel N (Aux slot K): preamp → Card out (Local 1:1)
+    → **PC in N** → notch filtering → **PC out K** → Card in K → Aux In K →
+    channel N insert return (POST), replacing the strip signal. The audio engine
+    therefore **reads channel N on Card-input index N-1 and writes its processed
+    audio to Card-output index K-1** (`ChannelState.card_out_slot` = K); filter
+    banks are keyed by console channel number, not by a card slot.
+  - Pace writes; read back every written address to confirm (settle-delay retry
+    via `query_until_match`); raise if any mismatch.
+- **Per-channel bypass/restore** = a single `/ch/N/insert/on 0|1` write (toggle),
+  no read-modify-write of anything larger. Bypass drops the channel back to its
+  own dry signal; re-insert closes the loop again. Requires the channel to have
+  been applied this session (its Aux slot + insert config already in place).
 - **Console-side safety scene** (implemented, `app/osc/scene.py`): before the
   app's first routing write of a session, `POST /api/routing/apply` saves a
   real scene into the console's own scene list (`/save ,siss scene <slot>
@@ -300,8 +312,9 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 - **Routing panel** (implemented, `/api/routing/*` + `/api/channels/*`):
   channel grid with a per-channel select checkbox, Save Snapshot / Apply
   Routing / Restore / Bypass All / Re-insert All buttons, per-channel rows
-  showing card-out slot, active notch count, AI toggle, MIDI slot, mode,
-  sensitivity, and a bypass/insert button. **Shows 4 channels by default, not
+  showing Aux slot (the channel's insert Aux bus / PC-output slot), active
+  notch count, AI toggle, MIDI slot, mode, sensitivity, and a bypass/insert
+  button. **Shows 4 channels by default, not
   all 32** — a "+ Add channel" dropdown brings any specific channel into view,
   a "Show all 32" checkbox is the escape hatch back to the full grid, and the
   visible set persists in the browser's `localStorage` across reloads. A
@@ -460,6 +473,21 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
    or unreachable one is skipped rather than fatal.
 
 ## Open items to verify (do not assume)
+- **Aux-output "Insert" src value (`/outputs/aux/NN/src`) — UNCONFIRMED, the one
+  gap in the insert-based routing.** The v4.09 doc enum for `/outputs/aux/NN/src`
+  is `[0..76]` (OFF, Main L/R, M/C, MixBus, Matrix, DirectOut…, Monitor, Talkback)
+  and has **no "Insert" entry**, but the console's OUT/AUX patch screen
+  (`Resources/AuxOut.png`) clearly offers "Insert" as the first output-signal
+  category — a newer-firmware addition the doc predates. `addresses.AUX_OUT_SRC_
+  INSERT` / `AppConfig.aux_out_insert_src_value` are `None` until this raw integer
+  is read off a real console. To confirm: read `/outputs/aux/02/src` on Jason's
+  console (10.10.0.142) — AuxOut.png shows Aux Out 2 already set to Insert, so the
+  reply *is* the value. Until then `apply_routing` writes everything except the
+  aux-out src and flags `aux_out_insert_unconfirmed` so the UI tells the user to
+  set each used Aux Out to Insert on the desk; the value is never guessed. The
+  rest of the insert path is confirmed: `/ch/NN/insert/{on,pos,sel}` (doc,
+  sel enum AUX1-6 = 17-22), `/config/routing/IN/AUX` Card 1-2/1-4/1-6 = rtina
+  10/11/12, CARD block = Local (rtaea AN blocks 0-3).
 - **`X32_OSC.pdf` (committed at the repo root) is Maillot's "Unofficial X32/M32
   OSC Remote Protocol" v4.09 — the authoritative reference this project's
   empirical findings are cross-checked against.** Everything it documents that

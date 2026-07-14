@@ -18,6 +18,7 @@ from app.audio.echo_cancellation import EchoCancellationError, auto_route_refere
 from app.config import save_config
 from app.diagnostics.export import build_debug_bundle
 from app.midi import devices as midi_devices
+from app.osc import addresses
 from app.osc.assign_set import snapshot_assign_sets
 from app.osc.channel_eq import ChannelEqError, commit_notches_to_console_eq, restore_console_eq
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
@@ -373,8 +374,10 @@ def channel_notches(channel: int):
     audio_engine = current_app.extensions.get("audio_engine")
     if channel not in state.channels:
         return jsonify(error=f"channel {channel} out of range"), 404
-    card_slot = state.channels[channel].card_out_slot
-    bank = audio_engine.filter_banks.get(card_slot) if (audio_engine is not None and card_slot is not None) else None
+    # filter_banks are keyed by console channel number (the engine reads
+    # each managed channel off its own Card-input index and writes the
+    # processed result out on the channel's Aux slot -- see app.audio.engine).
+    bank = audio_engine.filter_banks.get(channel) if audio_engine is not None else None
     return jsonify(notches=bank.active_notches() if bank is not None else [])
 
 
@@ -515,8 +518,8 @@ def commit_channel_eq(channel: int):
     if error:
         return error
 
-    card_slot = state.channels[channel].card_out_slot
-    bank = audio_engine.filter_banks.get(card_slot) if (audio_engine is not None and card_slot is not None) else None
+    # filter_banks are keyed by console channel number (see app.audio.engine).
+    bank = audio_engine.filter_banks.get(channel) if audio_engine is not None else None
     notches = bank.active_notches() if bank is not None else []
     if not notches:
         return jsonify(error="channel has no active notches to commit"), 400
@@ -583,13 +586,11 @@ def update_channel_settings(channel: int):
             return jsonify(error="mode must be 'live' or 'ring_out'"), 400
         channel_state.mode = body["mode"]
 
-    if audio_engine is not None and channel_state.card_out_slot is not None:
-        # filter_banks is keyed by Card slot number, NOT console channel
-        # number -- apply_routing can assign a channel to any free slot,
-        # so these differ whenever card_out_slot != channel. Using
-        # `channel` directly here would silently edit some other
-        # channel's filter bank whenever that happened.
-        bank = audio_engine.filter_banks.get(channel_state.card_out_slot)
+    if audio_engine is not None:
+        # filter_banks are keyed by console channel number (the engine reads
+        # each managed channel off its own Card-input index) -- see
+        # app.audio.engine.
+        bank = audio_engine.filter_banks.get(channel)
         if bank is not None:
             if channel_state.max_notches_override is not None:
                 bank.max_notches = channel_state.max_notches_override
@@ -654,10 +655,23 @@ def apply_routing_route():
         state.safety_scene_saved = True
 
     try:
-        assignments = apply_routing(osc, diagnostics, channels, snapshot, state, correlation_id=correlation_id)
+        assignments = apply_routing(
+            osc,
+            diagnostics,
+            channels,
+            snapshot,
+            state,
+            correlation_id=correlation_id,
+            insert_src_value=config.aux_out_insert_src_value,
+            max_channels=config.max_insert_channels,
+        )
     except RoutingApplyError as exc:
         return jsonify(error=str(exc)), 500
-    return jsonify(assignments=assignments)
+    return jsonify(
+        assignments=assignments,
+        aux_out_insert_unconfirmed=config.aux_out_insert_src_value is None
+        and addresses.AUX_OUT_SRC_INSERT is None,
+    )
 
 
 @bp.route("/api/routing/restore", methods=["POST"])
