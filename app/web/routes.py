@@ -213,6 +213,9 @@ def connect_console():
     gain_assist = current_app.extensions.get("gain_assist")
     if gain_assist is not None:
         gain_assist.osc = osc
+    console_eq_sync = current_app.extensions.get("console_eq_sync")
+    if console_eq_sync is not None:
+        console_eq_sync.osc = osc
 
     try:
         state.set_assign_set_snapshot(snapshot_assign_sets(osc, diagnostics, correlation_id=correlation_id))
@@ -245,6 +248,9 @@ def disconnect_console():
     watchdog = current_app.extensions.get("watchdog")
     if watchdog is not None:
         watchdog.osc = None
+    console_eq_sync = current_app.extensions.get("console_eq_sync")
+    if console_eq_sync is not None:
+        console_eq_sync.osc = None
 
     return jsonify(connected=False)
 
@@ -585,6 +591,21 @@ def update_channel_settings(channel: int):
         if body["mode"] not in ("live", "ring_out"):
             return jsonify(error="mode must be 'live' or 'ring_out'"), 400
         channel_state.mode = body["mode"]
+    if "eq_mode" in body:
+        if body["eq_mode"] not in ("external", "internal"):
+            return jsonify(error="eq_mode must be 'external' or 'internal'"), 400
+        previous = channel_state.eq_mode
+        channel_state.eq_mode = body["eq_mode"]
+        # Leaving internal mode: put the channel's console EQ back to what it
+        # was before the app started writing feedback notches into it.
+        if previous == "internal" and body["eq_mode"] == "external":
+            sync = current_app.extensions.get("console_eq_sync")
+            osc = current_app.extensions.get("osc_connection")
+            if sync is not None and osc is not None:
+                correlation_id = diagnostics.log_user_action(
+                    "internal_eq_disabled", {"channel": channel}
+                )
+                sync.restore_channel(channel, correlation_id=correlation_id)
 
     if audio_engine is not None:
         # filter_banks are keyed by console channel number (the engine reads

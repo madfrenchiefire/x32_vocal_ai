@@ -97,6 +97,35 @@ def test_apply_routing_reuses_existing_aux_slot(fake_x32, diagnostics, app_state
     assert first == second == {1: 1}
 
 
+def test_apply_routing_skips_internal_eq_channels(fake_x32, diagnostics, app_state):
+    # Internal-EQ channels are never inserted; only external ones are.
+    app_state.channels[2].eq_mode = "internal"
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    snapshot = _make_snapshot()
+    try:
+        assignments = apply_routing(osc, diagnostics, [1, 2], snapshot, app_state)
+    finally:
+        osc.close()
+
+    assert assignments == {1: 1}  # channel 2 skipped
+    assert app_state.channels[2].inserted is False
+    assert app_state.channels[2].card_out_slot is None
+    assert addresses.channel_insert_on_addr(2) not in fake_x32.extra_responses
+
+
+def test_apply_routing_all_internal_writes_nothing(fake_x32, diagnostics, app_state):
+    app_state.channels[1].eq_mode = "internal"
+    osc = _make_osc(fake_x32, diagnostics, app_state)
+    snapshot = _make_snapshot()
+    try:
+        assignments = apply_routing(osc, diagnostics, [1], snapshot, app_state)
+    finally:
+        osc.close()
+
+    assert assignments == {}
+    assert addresses.ROUTING_IN_AUX not in fake_x32.extra_responses
+
+
 def test_apply_routing_too_many_channels_raises(fake_x32, diagnostics, app_state):
     osc = _make_osc(fake_x32, diagnostics, app_state)
     snapshot = _make_snapshot()

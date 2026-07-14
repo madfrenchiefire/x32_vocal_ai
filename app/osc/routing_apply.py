@@ -101,7 +101,22 @@ def apply_routing(
     if insert_src_value is None:
         insert_src_value = addresses.AUX_OUT_SRC_INSERT
 
-    assignments = _assign_aux_slots(selected_channels, state, max_channels)
+    # Internal-EQ channels are never inserted -- the app only listens and
+    # writes their feedback notches into the console's own EQ
+    # (app.osc.console_eq_sync). Silently skip any that were selected.
+    internal_skipped = sorted(
+        ch for ch in set(selected_channels) if state.channels[ch].eq_mode == "internal"
+    )
+    external = [ch for ch in selected_channels if state.channels[ch].eq_mode != "internal"]
+    if not external:
+        diagnostics.log_state_change(
+            "routing_applied",
+            after={"assignments": {}, "internal_eq_skipped": internal_skipped},
+            correlation_id=correlation_id,
+        )
+        return {}
+
+    assignments = _assign_aux_slots(external, state, max_channels)
     # Reserve slots immediately so a concurrent read sees them.
     for channel, slot in assignments.items():
         state.channels[channel].card_out_slot = slot
@@ -177,6 +192,7 @@ def apply_routing(
             "aux_in_remap": aux_in_value,
             "aux_out_insert_written": insert_src_value is not None,
             "aux_out_src_skipped_slots": aux_out_skipped,
+            "internal_eq_skipped": internal_skipped,
         },
         correlation_id=correlation_id,
     )

@@ -323,7 +323,7 @@
           <thead>
             <tr>
               <th></th><th>Ch</th><th>Name</th><th>State</th><th>Level</th><th>Aux Slot</th><th>MIDI Slot</th><th>Notches</th>
-              <th>AI</th><th>Echo</th><th>Mode</th><th>Sensitivity</th><th>Action</th>
+              <th>AI</th><th>Echo</th><th>Mode</th><th title="External = app processes audio via insert; Internal = app writes feedback notches into the console's own EQ, no insert">EQ</th><th>Sensitivity</th><th>Action</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -715,19 +715,18 @@
       tr.appendChild(stateCell);
 
       const levelCell = document.createElement("td");
-      if (channel.card_out_slot !== null) {
-        const meter = document.createElement("div");
-        meter.className = "level-meter";
-        // Levels are keyed by console channel number (the engine reads each
-        // managed channel off its own Card-input index).
-        meter.dataset.channel = channel.index;
-        const fill = document.createElement("div");
-        fill.className = "level-meter-fill";
-        meter.appendChild(fill);
-        levelCell.appendChild(meter);
-      } else {
-        levelCell.textContent = "-";
-      }
+      // Always show an input meter: the engine measures RMS on every Card
+      // input channel it reads (Card output = Local 1:1), not just inserted
+      // ones, so this is a live "is audio arriving on this channel" check
+      // even before a channel is applied. Levels are keyed by console
+      // channel number.
+      const meter = document.createElement("div");
+      meter.className = "level-meter";
+      meter.dataset.channel = channel.index;
+      const fill = document.createElement("div");
+      fill.className = "level-meter-fill";
+      meter.appendChild(fill);
+      levelCell.appendChild(meter);
       tr.appendChild(levelCell);
 
       tr.appendChild(cell(channel.card_out_slot ?? "-"));
@@ -803,6 +802,42 @@
       });
       modeCell.appendChild(modeSelect);
       tr.appendChild(modeCell);
+
+      const eqModeCell = document.createElement("td");
+      const eqModeSelect = document.createElement("select");
+      for (const [value, label] of [["external", "Ext"], ["internal", "Int"]]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        if (value === (channel.eq_mode || "external")) option.selected = true;
+        eqModeSelect.appendChild(option);
+      }
+      eqModeSelect.title =
+        "External: app processes audio via the channel insert (console EQ untouched). " +
+        "Internal: app writes detected feedback notches into the channel's own console " +
+        "EQ (no insert) -- its 4 bands are snapshotted first and restored when you switch back.";
+      eqModeSelect.addEventListener("change", async () => {
+        const goingInternal = eqModeSelect.value === "internal";
+        if (goingInternal && !confirm(
+          "Internal EQ lets the app write feedback notches into channel " + channel.index +
+          "'s console 4-band EQ. Your current EQ on that channel is snapshotted and restored " +
+          "when you switch back to External, but while active the app manages those bands. Continue?"
+        )) {
+          eqModeSelect.value = channel.eq_mode || "external";
+          return;
+        }
+        try {
+          await api(`/api/channels/${channel.index}/settings`, {
+            method: "POST",
+            body: JSON.stringify({ eq_mode: eqModeSelect.value }),
+          });
+          await loadChannels();
+        } catch (err) {
+          setStatus("routing-status", `EQ mode update failed: ${err}`, "error");
+        }
+      });
+      eqModeCell.appendChild(eqModeSelect);
+      tr.appendChild(eqModeCell);
 
       const sensitivityCell = document.createElement("td");
       const sensitivityInput = document.createElement("input");

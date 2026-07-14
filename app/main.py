@@ -32,6 +32,7 @@ from app.config import AppConfig, load_config
 from app.diagnostics.logger import DiagnosticsLogger
 from app.midi.service import MidiService
 from app.osc.assign_set import snapshot_assign_sets
+from app.osc.console_eq_sync import ConsoleEqSync
 from app.osc.gain_assist import GainAssist
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.routing_apply import RoutingApplyError, bypass_channel
@@ -193,6 +194,24 @@ def main(argv: list[str] | None = None) -> int:
     if audio_engine is not None:
         audio_engine.on_notch_bank_saturated = gain_assist.request_trim
 
+    # Internal-EQ mode (app.osc.console_eq_sync): for channels set to
+    # "internal" the app writes detected feedback notches into the console's
+    # own EQ instead of processing the audio itself. Created always (osc
+    # rewired live on connect, like the others); the engine hook enqueues
+    # a sync whenever an internal-EQ channel's notch set changes.
+    def _notches_for(channel: int) -> list[dict]:
+        if audio_engine is None:
+            return []
+        bank = audio_engine.filter_banks.get(channel)
+        return bank.active_notches() if bank is not None else []
+
+    console_eq_sync = ConsoleEqSync(
+        osc=osc, diagnostics=diagnostics, state=state, notches_provider=_notches_for
+    )
+    console_eq_sync.start()
+    if audio_engine is not None:
+        audio_engine.on_internal_eq_update = console_eq_sync.request_sync
+
     # Armed unconditionally, even with osc=None on a first run with no
     # console configured yet -- app.web.routes' /api/console/connect
     # reassigns watchdog.osc once the user searches for or manually enters
@@ -212,12 +231,13 @@ def main(argv: list[str] | None = None) -> int:
         run_web(
             config, state, diagnostics,
             osc=osc, audio_engine=audio_engine, midi_service=midi_service, config_path=config_path,
-            watchdog=watchdog, gain_assist=gain_assist,
+            watchdog=watchdog, gain_assist=gain_assist, console_eq_sync=console_eq_sync,
         )
     finally:
         watchdog.trigger_full_restore(reason="clean_shutdown")
         watchdog.stop()
         gain_assist.stop()
+        console_eq_sync.stop()
         if audio_engine is not None:
             audio_engine.stop()
         if midi_service is not None:

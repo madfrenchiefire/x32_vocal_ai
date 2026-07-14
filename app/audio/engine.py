@@ -78,6 +78,7 @@ class AudioEngine:
         state: AppState | None = None,
         on_levels_update: Callable[[dict[int, float]], None] | None = None,
         on_notch_bank_saturated: Callable[[int], None] | None = None,
+        on_internal_eq_update: Callable[[int], None] | None = None,
     ) -> None:
         self.config = config
         self.diagnostics = diagnostics
@@ -100,6 +101,11 @@ class AudioEngine:
         # channel's notch bank is full and detection still fires --
         # wired to app.osc.gain_assist.GainAssist.request_trim.
         self.on_notch_bank_saturated = on_notch_bank_saturated
+        # Called (from the analysis thread; must not block) when an
+        # internal-EQ-mode channel's notch set changes (added/released) --
+        # wired to app.osc.console_eq_sync.ConsoleEqSync.request_sync, which
+        # mirrors the notches onto the console's own EQ.
+        self.on_internal_eq_update = on_internal_eq_update
 
         self._stream = None
         self._analysis_queue: queue.Queue = queue.Queue(maxsize=ANALYSIS_QUEUE_SIZE)
@@ -320,6 +326,7 @@ class AudioEngine:
             candidates = self.detector.analyze(
                 block[:, channel_index], channel_key=channel_number, threshold_db=threshold_db
             )
+            notches_changed = False
             for candidate in candidates:
                 existing_id = bank.find_notch_near(candidate.frequency_hz, NOTCH_MATCH_TOLERANCE_HZ)
                 if existing_id is not None:
@@ -337,6 +344,7 @@ class AudioEngine:
                         self.on_notch_bank_saturated(reported_channel)
                     continue
                 notch_id = bank.add_notch(candidate.frequency_hz)
+                notches_changed = True
                 self.diagnostics.log_state_change(
                     "notch_placed",
                     after={
@@ -351,6 +359,18 @@ class AudioEngine:
                 # Ring-out mode never releases -- CLAUDE.md's "locks
                 # filters" -- so this only runs in live mode.
                 for released_id in bank.release_stale_notches(NOTCH_RELEASE_AFTER_SEC, now=now):
+                    notches_changed = True
                     self.diagnostics.log_state_change(
                         "notch_released", after={"channel": reported_channel, "notch_id": released_id}
                     )
+
+            # Internal-EQ mode: when this channel's notch set changed, ask the
+            # console-EQ sync worker to mirror it onto the desk's own EQ. The
+            # hook only enqueues, so it's safe on the analysis thread.
+            if (
+                notches_changed
+                and channel_state is not None
+                and channel_state.eq_mode == "internal"
+                and self.on_internal_eq_update is not None
+            ):
+                self.on_internal_eq_update(reported_channel)

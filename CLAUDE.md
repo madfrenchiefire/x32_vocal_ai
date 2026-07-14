@@ -371,6 +371,33 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   deliberately NOT part of the crash watchdog's automatic restore, since a
   committed EQ is *meant* to outlive the app; a partially-failed commit still
   keeps the snapshot so restore stays available.
+- **Internal vs External EQ** (implemented, per-channel `ChannelState.eq_mode`,
+  "EQ" column Ext/Int in the routing grid, `app/osc/console_eq_sync.py`):
+  - **External** (default): the app processes the channel's audio through its
+    own notch bank via the insert (the whole routing design above). The
+    console EQ is never touched — the safe choice for a channel whose desk EQ
+    the engineer has already dialed in.
+  - **Internal**: the channel is **not** inserted (`apply_routing` skips
+    internal-EQ channels). The app only *listens* — it already reads every
+    channel off the card for metering/analysis — and mirrors the feedback
+    notches its detector finds into the channel's own console 4-band EQ. The
+    same detection pipeline runs; only the *output* differs. The engine fires
+    `on_internal_eq_update(channel)` when an internal channel's notch set
+    changes, enqueuing a sync on `ConsoleEqSync` (a queue worker like
+    `gain_assist` — never blocks the analysis thread), which writes via
+    `channel_eq.write_notches_to_console_eq` (the snapshot-free half of the
+    commit path). Gig-safe: the channel's console EQ is snapshotted **once**
+    into `AppState.console_eq_snapshots` before the first write and restored
+    when feedback clears, when the channel switches back to External, or on
+    shutdown (`restore_all`). Inherent limit: the X32 channel EQ has only 4
+    bands, so internal mode fits at most 4 feedback notches and shares them
+    with any tonal EQ — which is exactly why External (unlimited app notches,
+    console EQ untouched) is the default. The web UI confirms before enabling
+    internal mode on a channel.
+- Per-channel **input meters** show on **every** channel row now, not just
+  inserted ones — the engine computes RMS dBFS for every Card input it reads
+  (Card out = Local 1:1), so the meter is a live "is audio arriving on this
+  channel" check even before a channel is applied.
 - **Modes**: **Ring-out/setup** vs **Live** are a per-channel `ChannelState.mode`
   field, selectable in the routing grid and persisted, and now a real behavioral
   difference in `app.audio.engine._analyze_block`: ring-out mode never releases

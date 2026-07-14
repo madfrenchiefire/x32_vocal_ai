@@ -359,6 +359,43 @@ def test_update_channel_settings_rejects_bad_mode(tmp_path, app_state, diagnosti
     assert response.status_code == 400
 
 
+def test_update_channel_settings_sets_eq_mode(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post(
+        "/api/channels/5/settings", data=json.dumps({"eq_mode": "internal"}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert app_state.channels[5].eq_mode == "internal"
+    assert response.get_json()["channel"]["eq_mode"] == "internal"
+
+
+def test_update_channel_settings_rejects_bad_eq_mode(tmp_path, app_state, diagnostics):
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    response = client.post(
+        "/api/channels/5/settings", data=json.dumps({"eq_mode": "bogus"}), content_type="application/json"
+    )
+    assert response.status_code == 400
+
+
+def test_update_channel_settings_restores_console_eq_when_leaving_internal(tmp_path, app_state, diagnostics):
+    # Switching internal -> external asks the console-EQ sync to restore.
+    from unittest.mock import MagicMock
+
+    app_state.channels[5].eq_mode = "internal"
+    sync = MagicMock()
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, osc=MagicMock(), console_eq_sync=sync)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/channels/5/settings", data=json.dumps({"eq_mode": "external"}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    sync.restore_channel.assert_called_once()
+    assert sync.restore_channel.call_args.args[0] == 5
+
+
 # -- routing panel: requires a live OSC connection -----------------------------
 
 

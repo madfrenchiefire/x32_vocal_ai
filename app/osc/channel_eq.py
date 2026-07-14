@@ -142,6 +142,44 @@ def commit_notches_to_console_eq(
     correlation_id = correlation_id or diagnostics.new_correlation_id()
 
     snapshot = snapshot_console_eq(osc, channel, correlation_id=correlation_id)
+    try:
+        written = write_notches_to_console_eq(
+            osc, diagnostics, channel, notches, correlation_id=correlation_id, pace_sec=pace_sec
+        )
+    except ChannelEqError as error:
+        # Some writes may have landed before the failure -- expose the
+        # pre-write snapshot on the error so the caller can still offer a
+        # restore of whatever state the console is now in.
+        error.snapshot = snapshot  # type: ignore[attr-defined]
+        raise
+
+    diagnostics.log_state_change(
+        "console_eq_committed",
+        before={"channel": channel, "snapshot": snapshot},
+        after={"channel": channel, "written": written},
+        correlation_id=correlation_id,
+    )
+    return {"snapshot": snapshot, "written": written}
+
+
+def write_notches_to_console_eq(
+    osc: OscConnection,
+    diagnostics: DiagnosticsLogger,
+    channel: int,
+    notches: list[dict],
+    correlation_id: str | None = None,
+    pace_sec: float = 0.02,
+) -> list[dict]:
+    """Write up to NUM_EQ_BANDS of the app's active notches into the
+    channel's console EQ as parametric cuts, deepest first, and switch EQ
+    on. Unlike commit_notches_to_console_eq this does NOT snapshot first --
+    the caller owns the snapshot (used by app.osc.console_eq_sync, which
+    snapshots once when a channel enters internal-EQ mode and then writes
+    repeatedly as feedback comes and goes). Returns the per-band summary;
+    raises ChannelEqError on a failed tolerance-checked readback."""
+    if not notches:
+        raise ChannelEqError("no notches to write")
+    correlation_id = correlation_id or diagnostics.new_correlation_id()
 
     chosen = sorted(notches, key=lambda n: n["depth_db"])[:NUM_EQ_BANDS]  # deepest (most negative) first
     chosen.sort(key=lambda n: n["frequency_hz"])  # bands laid out low->high like a human would
@@ -184,22 +222,12 @@ def commit_notches_to_console_eq(
 
     if mismatches:
         error = ChannelEqError(
-            f"commit_notches_to_console_eq: {len(mismatches)} write(s) failed readback: {mismatches}"
+            f"write_notches_to_console_eq: {len(mismatches)} write(s) failed readback: {mismatches}"
         )
-        # Some writes may have landed before the failure -- expose the
-        # pre-write snapshot on the error so the caller can still offer a
-        # restore of whatever state the console is now in.
-        error.snapshot = snapshot  # type: ignore[attr-defined]
-        diagnostics.log_error(error, context="commit_notches_to_console_eq", correlation_id=correlation_id)
+        diagnostics.log_error(error, context="write_notches_to_console_eq", correlation_id=correlation_id)
         raise error
 
-    diagnostics.log_state_change(
-        "console_eq_committed",
-        before={"channel": channel, "snapshot": snapshot},
-        after={"channel": channel, "written": written},
-        correlation_id=correlation_id,
-    )
-    return {"snapshot": snapshot, "written": written}
+    return written
 
 
 def restore_console_eq(

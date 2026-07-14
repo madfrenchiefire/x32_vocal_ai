@@ -570,6 +570,46 @@ def test_analyze_block_calls_saturation_hook_when_bank_full(diagnostics):
     assert len(bank.active_notches()) == 1  # no notch stacked past the cap
 
 
+def test_analyze_block_fires_internal_eq_hook_on_notch_change(diagnostics):
+    engine = _make_engine(diagnostics)
+    state = AppState()
+    state.channels[1].ai_enabled = True
+    state.channels[1].eq_mode = "internal"
+    engine.state = state
+
+    updated: list[int] = []
+    engine.on_internal_eq_update = updated.append
+
+    candidate = FeedbackCandidate(
+        frequency_hz=1500.0, peak_to_average_db=20.0,
+        harmonic_structure_present=False, sustained_growth=True,
+    )
+    engine.detector.analyze.return_value = [candidate]
+    engine._analyze_block(np.zeros((64, 2), dtype=np.float32))
+
+    assert updated == [1]
+
+
+def test_analyze_block_no_internal_eq_hook_for_external_channel(diagnostics):
+    engine = _make_engine(diagnostics)
+    state = AppState()
+    state.channels[1].ai_enabled = True
+    state.channels[1].eq_mode = "external"  # default
+    engine.state = state
+
+    updated: list[int] = []
+    engine.on_internal_eq_update = updated.append
+
+    candidate = FeedbackCandidate(
+        frequency_hz=1500.0, peak_to_average_db=20.0,
+        harmonic_structure_present=False, sustained_growth=True,
+    )
+    engine.detector.analyze.return_value = [candidate]
+    engine._analyze_block(np.zeros((64, 2), dtype=np.float32))
+
+    assert updated == []  # external channels don't trigger console-EQ sync
+
+
 def test_analyze_block_no_saturation_hook_when_room_left(diagnostics):
     engine = _make_engine(diagnostics)
     state = AppState()

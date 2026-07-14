@@ -56,6 +56,13 @@ class ChannelState:
     notch_depth_db_override: float | None = None
     notch_q_override: float | None = None
     mode: str = "live"  # "live" or "ring_out" -- see CLAUDE.md's Web UI modes
+    # "external" = the app processes the audio through its own notch bank via
+    # the channel insert (console EQ untouched). "internal" = the app stays
+    # out of the audio path (no insert) and instead writes the feedback
+    # notches it detects into the channel's own console 4-band EQ
+    # (app.osc.console_eq_sync). Default external -- the safe choice that
+    # never touches the engineer's console EQ.
+    eq_mode: str = "external"
 
 
 class AppState:
