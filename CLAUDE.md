@@ -34,7 +34,20 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   by default** (`asio_only=True`) — a Windows audio interface typically exposes both
   an ASIO device and one or more MME/WDM/WASAPI "wrapped" devices for the same
   physical hardware, and only the ASIO one guarantees the direct, stable channel
-  order this app depends on: **Card slot N is assumed to be channel index N-1 of
+  order this app depends on. **Deployment gotcha confirmed on the real target PC
+  (2026-07-14): recent `sounddevice` wheels bundle a PortAudio DLL built WITHOUT
+  ASIO support** (Steinberg's ASIO SDK license stopped allowing redistribution) —
+  `list_devices --all` shows no "ASIO" host API at all, even with the vendor ASIO
+  driver installed and working in other apps. Remedies, easiest first: pin
+  `sounddevice==0.4.4` (older wheels still bundled ASIO), or replace
+  `site-packages/_sounddevice_data/portaudio-binaries/libportaudio64bit.dll` with
+  an ASIO-enabled build (pre-2022 history of github.com/spatialaudio/
+  portaudio-binaries, or build via vcpkg's `portaudio[asio]`). Also confirmed:
+  the target PC's card is the **X-LIVE** (32×32 USB audio via its own
+  "X-LIVE ASIO Driver"), not the X-USB — same capability, and the app selects
+  devices by name so either works. The X-LIVE's Windows class driver only
+  exposes stereo IN 1-2/OUT 1-2 endpoints, so ASIO is genuinely mandatory for
+  the 32-channel path, not just preferred: **Card slot N is assumed to be channel index N-1 of
   the opened stream**, everywhere from `app.audio.engine.AudioEngine`'s
   `filter_banks`/`echo_cancellers` dict keys to `app.osc.routing_apply`'s Card slot
   bookkeeping. A non-ASIO wrapper can remap or downmix channels, silently breaking
