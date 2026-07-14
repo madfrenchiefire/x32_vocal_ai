@@ -237,6 +237,13 @@ def main(argv: list[str] | None = None) -> int:
         watchdog.trigger_full_restore(reason="clean_shutdown")
         watchdog.stop()
         gain_assist.stop()
+        # Clean shutdown leaves the console stock (gig-safe principle #3), so
+        # put back any channel's console EQ the internal-EQ mode was managing.
+        # (A *crash* deliberately keeps the notches -- see the watchdog: mid-
+        # crash, live feedback suppression is safer than the engineer's
+        # original EQ, same call as gain assist.)
+        if osc is not None:
+            console_eq_sync.restore_all()
         console_eq_sync.stop()
         if audio_engine is not None:
             audio_engine.stop()
