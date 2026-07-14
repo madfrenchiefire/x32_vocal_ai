@@ -5,12 +5,12 @@ from app.tools import list_devices
 
 
 def _patch_all(monkeypatch, *, audio_in_error=None, midi_in_error=None):
-    def fake_audio_in():
+    def fake_audio_in(asio_only=True):
         if audio_in_error:
             raise audio_in_error
         return [AudioDevice(0, "X-USB", "ALSA", 32, 0, 48000.0)]
 
-    def fake_audio_out():
+    def fake_audio_out(asio_only=True):
         return [AudioDevice(0, "X-USB", "ALSA", 0, 32, 48000.0)]
 
     def fake_midi_in():
