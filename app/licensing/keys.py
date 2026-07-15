@@ -90,6 +90,11 @@ class LicenseInfo:
     issued: str
     expires: str | None
     machine: str | None
+    # Online model only (app.licensing is offline by default): the ISO
+    # datetime by which the app should re-check with the license server.
+    # None for a purely offline signed key. See cloud/ for the server that
+    # issues these short-lived tokens.
+    recheck: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "LicenseInfo":
@@ -101,6 +106,7 @@ class LicenseInfo:
             issued=str(payload.get("issued", "")),
             expires=(payload["expires"] if payload.get("expires") else None),
             machine=(payload["machine"] if payload.get("machine") else None),
+            recheck=(payload["recheck"] if payload.get("recheck") else None),
         )
 
     def is_expired(self, today: date | None = None) -> bool:

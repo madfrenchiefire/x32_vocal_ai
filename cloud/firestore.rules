@@ -1,0 +1,41 @@
+rules_version = '2';
+
+// Firestore security rules for the X32 Vocal AI license store.
+//
+// Enforcement principle: the app never touches Firestore directly (it calls
+// Cloud Functions). The portal (Firebase Hosting + Auth) reads licenses
+// directly for display, but ALL license mutations go through Cloud Functions
+// running with admin privileges -- clients can never write license state.
+//
+// - A signed-in customer may READ only the licenses whose ownerEmail matches
+//   their own VERIFIED email. They can read nothing else and write nothing.
+// - An admin (custom claim admin==true) may read everything. Writes still go
+//   through functions, so even admin clients don't write here directly.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+    function ownsEmail(email) {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() == email.lower();
+    }
+
+    match /licenses/{key} {
+      allow read: if isAdmin() || ownsEmail(resource.data.ownerEmail);
+      // No client writes -- license state is mutated only by Cloud Functions
+      // (Admin SDK bypasses these rules).
+      allow write: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if false;  // profile/role set by functions only
+    }
+  }
+}

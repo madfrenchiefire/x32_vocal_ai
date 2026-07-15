@@ -1,0 +1,5 @@
+# Cloud Functions (2nd gen, Python) runtime deps. Deployed to Firebase, not
+# part of the desktop app's requirements.
+firebase-functions>=0.4.0
+firebase-admin>=6.5.0
+cryptography>=42.0
