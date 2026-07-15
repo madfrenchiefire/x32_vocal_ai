@@ -7,24 +7,25 @@ calls `activate` and `check`; the portal calls `deactivate` (self-service
 Deploy: see cloud/README.md. The Ed25519 signing key lives in Secret
 Manager (LICENSE_PRIVATE_KEY), never in this source or the shipped app.
 
-Endpoints (HTTPS callable):
-    activate({key, machineCode})   -> {token} | {error}
-    check({key, machineCode})      -> {token} | {error}
-    deactivate({key})              -> {ok}    | {error}   (auth required)
-    admin_create({...})            -> {key}               (admin only)
-    admin_update({key, ...})       -> {ok}                (admin only)
+Endpoints:
+    activate / check                HTTP   (app)      -> {token} | {error}
+    deactivate                      callable (portal, auth)
+    admin_create / admin_update     callable (portal, admin)
+    create_checkout_session         HTTP   (storefront) -> {url}
+    stripe_webhook                  HTTP   (Stripe)    -> license create/renew
 """
 from __future__ import annotations
 
 import json
 import os
-import secrets
 from datetime import datetime, timezone
 
 from firebase_admin import firestore, initialize_app
 from firebase_functions import https_fn, options
 
+import billing_core
 import license_core as core
+import pricing
 
 initialize_app()
 options.set_global_options(region="us-central1", max_instances=10)
@@ -126,7 +127,7 @@ def admin_create(req: https_fn.CallableRequest) -> dict:
     lic_type = data.get("type", "lifetime")
     if not owner_email or lic_type not in ("monthly", "lifetime"):
         return {"error": "invalid_fields"}
-    key = data.get("key") or _generate_key()
+    key = data.get("key") or core.generate_key()
     doc = {
         "key": key,
         "ownerEmail": owner_email,
@@ -165,8 +166,88 @@ def admin_update(req: https_fn.CallableRequest) -> dict:
     return {"ok": True}
 
 
-def _generate_key() -> str:
-    """Human-ish key: XVAI-XXXX-XXXX-XXXX (base32, no ambiguous chars)."""
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    groups = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
-    return "XVAI-" + "-".join(groups)
+# -- storefront: Stripe checkout + webhook ----------------------------------
+
+
+def _stripe():
+    import stripe  # imported lazily so license_core tests don't need the SDK
+
+    stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+    return stripe
+
+
+@https_fn.on_request(secrets=["STRIPE_SECRET_KEY"])
+def create_checkout_session(req: https_fn.Request) -> https_fn.Response:
+    """Start a Stripe Checkout for a product/plan. Public -- it only creates a
+    hosted-checkout URL; no customer data is exposed. Body {productId, plan}."""
+    if req.method != "POST":
+        return _json({"error": "method_not_allowed"}, 405)
+    data = req.get_json(silent=True) or {}
+    product = str(data.get("productId", "")).strip()
+    plan = str(data.get("plan", "")).strip()
+    price = pricing.price_id(product, plan)
+    if not price or plan not in ("monthly", "lifetime"):
+        return _json({"error": "unknown_product_or_plan"}, 400)
+
+    portal_url = os.environ.get("PORTAL_URL", "").rstrip("/")
+    mode = "subscription" if plan == "monthly" else "payment"
+    metadata = {"productId": product, "type": plan}
+    params = {
+        "mode": mode,
+        "line_items": [{"price": price, "quantity": 1}],
+        "success_url": f"{portal_url}/?purchased=1",
+        "cancel_url": f"{portal_url}/",
+        "metadata": metadata,
+        "allow_promotion_codes": True,
+    }
+    if mode == "subscription":
+        # Carry the metadata onto the subscription too, so renewal invoices
+        # can be traced back to product/type if ever needed.
+        params["subscription_data"] = {"metadata": metadata}
+    session = _stripe().checkout.Session.create(**params)
+    return _json({"url": session.url})
+
+
+@https_fn.on_request(secrets=["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"])
+def stripe_webhook(req: https_fn.Request) -> https_fn.Response:
+    """Stripe -> license fulfillment. Signature-verified. Creates a license on
+    checkout completion, extends it on subscription renewal, disables it on
+    cancellation. Idempotent on the checkout session id."""
+    stripe = _stripe()
+    try:
+        event = stripe.Webhook.construct_event(
+            req.data, req.headers.get("Stripe-Signature", ""),
+            os.environ["STRIPE_WEBHOOK_SECRET"],
+        )
+    except Exception as exc:  # bad signature / malformed
+        return _json({"error": f"signature: {exc}"}, 400)
+
+    etype = event["type"]
+    obj = event["data"]["object"]
+
+    if etype == "checkout.session.completed":
+        if not _license_exists("stripeSessionId", obj.get("id")):
+            lic = billing_core.license_from_checkout(obj, _now())
+            if lic is not None:
+                _db().collection(LICENSES).document(lic["key"]).set(lic)
+    elif etype == "invoice.paid" and billing_core.is_renewal_invoice(obj):
+        sub = billing_core.subscription_id_from_invoice(obj)
+        _update_by("stripeSubscriptionId", sub, billing_core.renewal_updates(_now()))
+    elif etype == "customer.subscription.deleted":
+        _update_by("stripeSubscriptionId", obj.get("id"), billing_core.cancellation_updates(_now()))
+
+    return _json({"received": True})
+
+
+def _license_exists(field: str, value) -> bool:
+    if not value:
+        return False
+    docs = _db().collection(LICENSES).where(field, "==", value).limit(1).stream()
+    return any(True for _ in docs)
+
+
+def _update_by(field: str, value, updates: dict) -> None:
+    if not value:
+        return
+    for doc in _db().collection(LICENSES).where(field, "==", value).limit(1).stream():
+        doc.reference.update(updates)

@@ -15,7 +15,7 @@ import {
   getFirestore, collection, query, where, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js";
-import { firebaseConfig, functionsRegion } from "./firebase-config.js";
+import { firebaseConfig, functionsRegion, functionsBaseUrl, storeProducts } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -37,6 +37,59 @@ async function call(name, data) {
   if (res.data && res.data.error) throw new Error(res.data.error);
   return res.data;
 }
+
+// -- storefront ---------------------------------------------------------------
+
+function renderStore() {
+  // Show the "thanks" banner if we came back from a successful Stripe checkout.
+  if (new URLSearchParams(location.search).get("purchased") === "1") {
+    show("purchased-card", true);
+  }
+  const host = $("store-products");
+  host.innerHTML = "";
+  (storeProducts || []).forEach((product) => {
+    const wrap = document.createElement("div");
+    wrap.style.marginBottom = "0.8rem";
+    const title = document.createElement("div");
+    title.innerHTML = `<b>${product.name}</b> — <span class="muted">${product.blurb || ""}</span>`;
+    wrap.appendChild(title);
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.marginTop = "0.4rem";
+    product.plans.forEach((p) => {
+      const btn = document.createElement("button");
+      btn.style.flex = "0";
+      btn.textContent = `${p.label} — ${p.price}`;
+      btn.onclick = () => buy(product.productId, p.plan, btn);
+      const cell = document.createElement("div");
+      cell.style.flex = "0";
+      cell.appendChild(btn);
+      row.appendChild(cell);
+    });
+    wrap.appendChild(row);
+    host.appendChild(wrap);
+  });
+}
+
+async function buy(productId, plan, btn) {
+  btn.disabled = true;
+  setStatus("store-status", "Redirecting to secure checkout…");
+  try {
+    const resp = await fetch(`${functionsBaseUrl}/create_checkout_session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productId, plan }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+    location.href = data.url;
+  } catch (e) {
+    setStatus("store-status", `Could not start checkout: ${e.message}`, "error");
+    btn.disabled = false;
+  }
+}
+
+renderStore();
 
 // -- auth state ---------------------------------------------------------------
 

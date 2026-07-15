@@ -61,6 +61,25 @@
   </header>
 
   <main>
+    <!-- Purchase confirmation (Stripe success redirect) -->
+    <section class="card hidden" id="purchased-card" style="border-color:#22543d;">
+      <h2>Thanks for your purchase! 🎉</h2>
+      <p>Your license is being created. Sign in or create an account below with the
+        <b>same email you paid with</b>, verify it, and your key will appear under
+        "My licenses". (It usually lands within a few seconds.)</p>
+    </section>
+
+    <!-- Storefront (always visible) -->
+    <section class="card" id="store-card">
+      <h2>Buy X32 SonicSniper</h2>
+      <div id="store-products"></div>
+      <p class="status" id="store-status"></p>
+      <p class="muted" style="font-size: 0.85rem;">
+        Secure checkout via Stripe. After paying, sign in with the same email to
+        manage your license (move it between PCs, view status).
+      </p>
+    </section>
+
     <!-- Auth -->
     <section class="card" id="auth-card">
       <h2 id="auth-title">Sign in</h2>

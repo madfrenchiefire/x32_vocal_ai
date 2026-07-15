@@ -137,6 +137,44 @@ auth.set_custom_user_claims(auth.get_user_by_email("you@you.com").uid, {"admin":
 
 (Sign out/in afterward so the new claim is in your token.)
 
+## Storefront & billing (Stripe)
+
+The portal has a **Buy** area (visible logged-out); purchases auto-create /
+renew licenses via a Stripe webhook — no manual key issuing.
+
+Flow: portal Buy button → `create_checkout_session` (HTTP) → Stripe-hosted
+Checkout → on payment, Stripe calls `stripe_webhook`, which creates the
+license (product/plan ride in the session `metadata`). Monthly renewals
+(`invoice.paid`, cycle) extend the license's expiry; cancellation
+(`customer.subscription.deleted`) disables it. The buyer then signs into the
+portal with the email they paid with and sees their key.
+
+Setup:
+1. In **Stripe**, create a product with two prices: a recurring **monthly**
+   price and a one-time **lifetime** price. Put their price IDs in
+   `functions/pricing.py`.
+2. Set secrets and the portal URL:
+   ```bash
+   firebase functions:secrets:set STRIPE_SECRET_KEY        # sk_live_… (or sk_test_…)
+   firebase functions:secrets:set STRIPE_WEBHOOK_SECRET     # from the webhook, step 4
+   # PORTAL_URL is used for the checkout success/cancel redirects:
+   firebase functions:config unset  # (n/a) -- set PORTAL_URL as a function env var
+   ```
+   Set `PORTAL_URL` (e.g. `https://<project>.web.app`) as an env var on the
+   `create_checkout_session` function (via `firebase.json` `environmentVariables`
+   or the console).
+3. Fill `hosting/firebase-config.js`: `functionsBaseUrl`, and the `storeProducts`
+   prices/labels shown on the storefront.
+4. Deploy, then in the **Stripe dashboard → Webhooks**, add an endpoint
+   pointing at the deployed `stripe_webhook` URL, subscribed to
+   `checkout.session.completed`, `invoice.paid`, and
+   `customer.subscription.deleted`. Copy its signing secret into
+   `STRIPE_WEBHOOK_SECRET` (step 2) and redeploy.
+5. Test with Stripe **test mode** keys + a `4242…` test card before going live.
+
+The webhook is idempotent on the checkout session id (Stripe retries won't
+double-create), and verifies every event's Stripe signature.
+
 ## What the app will do (stage 3)
 
 Replace the current offline `activate` with a call to the `activate` function

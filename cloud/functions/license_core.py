@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import json
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -29,6 +30,14 @@ TOKEN_FORMAT_VERSION = 1
 DEFAULT_TOKEN_TTL_DAYS = 10  # app rechecks weekly; ~10d covers a missed week + a no-wifi gig
 
 STATUS_ACTIVE = "active"
+
+_KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no ambiguous chars (0/O, 1/I/L)
+
+
+def generate_key() -> str:
+    """A human-ish license key: XVAI-XXXX-XXXX-XXXX."""
+    groups = ["".join(secrets.choice(_KEY_ALPHABET) for _ in range(4)) for _ in range(3)]
+    return "XVAI-" + "-".join(groups)
 
 
 def _b64encode(raw: bytes) -> str:
