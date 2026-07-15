@@ -3,5 +3,8 @@
 pytest>=8.0
 pytest-cov>=5.0
 
+# Packaging the single-file .exe (Windows) -- see docs/PACKAGING.md
+pyinstaller>=6.0
+
 # Training-only, not needed at runtime
 torch>=2.2

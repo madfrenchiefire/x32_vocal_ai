@@ -33,6 +33,7 @@ from app.diagnostics.logger import DiagnosticsLogger
 from app.midi.service import MidiService
 from app.osc.assign_set import snapshot_assign_sets
 from app.osc.console_eq_sync import ConsoleEqSync
+from app.licensing.manager import LicenseManager
 from app.osc.gain_assist import GainAssist
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.routing_apply import RoutingApplyError, bypass_channel
@@ -180,9 +181,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     diagnostics.log_user_action("app_started", {"config_path": config_path})
 
-    osc = _start_osc(config, diagnostics, state)
-    midi_service = _start_midi(config, diagnostics, state, osc)
-    audio_engine = _start_audio(config, diagnostics, state)
+    # Licensing gate: a valid key or an active trial is required to run the
+    # real services. When neither holds, the web server still comes up (so
+    # the user can enter a key on the License screen) but OSC/MIDI/audio are
+    # not started -- and the API is blocked by app.web.routes' license gate.
+    license_manager = LicenseManager()
+    license_status = license_manager.evaluate_at_startup(diagnostics)
+    if license_status.functional:
+        osc = _start_osc(config, diagnostics, state)
+        midi_service = _start_midi(config, diagnostics, state, osc)
+        audio_engine = _start_audio(config, diagnostics, state)
+    else:
+        print(
+            f"\n*** {license_status.message} ***\n"
+            f"    Machine code: {license_status.machine_code}\n"
+            f"    Open the web UI and enter a license key to enable all features "
+            f"(then restart the app).\n",
+            file=sys.stderr,
+        )
+        osc = midi_service = audio_engine = None
 
     # Opt-in last-resort preamp trim (app.osc.gain_assist): created even
     # when disabled/unconnected so the web UI can toggle it and
@@ -232,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             config, state, diagnostics,
             osc=osc, audio_engine=audio_engine, midi_service=midi_service, config_path=config_path,
             watchdog=watchdog, gain_assist=gain_assist, console_eq_sync=console_eq_sync,
+            license_manager=license_manager,
         )
     finally:
         watchdog.trigger_full_restore(reason="clean_shutdown")

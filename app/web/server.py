@@ -34,6 +34,7 @@ def create_app(
     watchdog: Watchdog | None = None,
     gain_assist=None,
     console_eq_sync=None,
+    license_manager=None,
 ) -> tuple[Flask, SocketIO]:
     app = Flask(__name__)
     app.extensions["app_config"] = config
@@ -51,6 +52,7 @@ def create_app(
     app.extensions["watchdog"] = watchdog
     app.extensions["gain_assist"] = gain_assist
     app.extensions["console_eq_sync"] = console_eq_sync
+    app.extensions["license_manager"] = license_manager
     # Device selections are persisted here if set (app.web.routes'
     # /api/devices/select) -- None means "update the in-memory config for
     # this run only", so tests and ad-hoc create_app() callers never write
@@ -79,9 +81,10 @@ def run(
     watchdog: Watchdog | None = None,
     gain_assist=None,
     console_eq_sync=None,
+    license_manager=None,
 ) -> None:
     app, socketio = create_app(
         config, state, diagnostics, osc, audio_engine, midi_service, config_path,
-        watchdog, gain_assist, console_eq_sync,
+        watchdog, gain_assist, console_eq_sync, license_manager,
     )
     socketio.run(app, host=config.web_host, port=config.web_port)

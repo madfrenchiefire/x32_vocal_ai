@@ -953,3 +953,75 @@ def test_panic_endpoint_without_managed_channels_400s(fake_x32, tmp_path, app_st
         assert client.post("/api/panic/restore").status_code == 400  # not active
     finally:
         osc.close()
+
+
+# -- licensing gate + endpoints -----------------------------------------------
+
+
+def _licensed_manager(tmp_path, trial_days=14, activate=True):
+    from app.licensing import keys
+    from app.licensing.manager import LicenseManager
+    from app.licensing.store import LicenseStore
+
+    priv, pub = keys.generate_keypair()
+    mgr = LicenseManager(
+        store=LicenseStore(tmp_path / "lic"), public_key_hex=pub,
+        trial_days=trial_days, fingerprint="webtestpc",
+    )
+    if activate:
+        mgr.activate(keys.sign_token(keys.build_payload(name="Web Buyer"), priv))
+    return mgr, priv, pub
+
+
+def test_no_license_manager_leaves_api_open(tmp_path, app_state, diagnostics):
+    # Existing behavior: without a manager wired, nothing is gated.
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics)
+    client = app.test_client()
+    assert client.get("/api/channels").status_code == 200
+    assert client.get("/api/license/status").get_json()["functional"] is True
+
+
+def test_expired_trial_blocks_functional_api_but_allows_license(tmp_path, app_state, diagnostics):
+    mgr, _priv, _pub = _licensed_manager(tmp_path, trial_days=0, activate=False)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, license_manager=mgr)
+    client = app.test_client()
+
+    blocked = client.get("/api/channels")
+    assert blocked.status_code == 403
+    assert blocked.get_json()["license_required"] is True
+
+    # License endpoints stay reachable so the user can activate.
+    assert client.get("/api/license/status").status_code == 200
+    assert client.get("/api/license/status").get_json()["state"] == "trial_expired"
+
+
+def test_licensed_manager_allows_api(tmp_path, app_state, diagnostics):
+    mgr, _priv, _pub = _licensed_manager(tmp_path, activate=True)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, license_manager=mgr)
+    client = app.test_client()
+    assert client.get("/api/channels").status_code == 200
+    assert client.get("/api/license/status").get_json()["state"] == "licensed"
+
+
+def test_activate_route_accepts_valid_key(tmp_path, app_state, diagnostics):
+    from app.licensing import keys
+
+    mgr, priv, _pub = _licensed_manager(tmp_path, trial_days=0, activate=False)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, license_manager=mgr)
+    client = app.test_client()
+
+    token = keys.sign_token(keys.build_payload(name="New Buyer", tier="pro"), priv)
+    resp = client.post("/api/license/activate", data=json.dumps({"token": token}), content_type="application/json")
+    assert resp.status_code == 200
+    assert resp.get_json()["state"] == "licensed"
+    # Now the functional API is unblocked.
+    assert client.get("/api/channels").status_code == 200
+
+
+def test_activate_route_rejects_bad_key(tmp_path, app_state, diagnostics):
+    mgr, _priv, _pub = _licensed_manager(tmp_path, trial_days=0, activate=False)
+    app, _sio, _config = _app(tmp_path, app_state, diagnostics, license_manager=mgr)
+    client = app.test_client()
+    resp = client.post("/api/license/activate", data=json.dumps({"token": "X32VOCAL1.bad.bad"}),
+                       content_type="application/json")
+    assert resp.status_code == 400

@@ -3,6 +3,9 @@ python-osc>=1.9
 Flask>=3.0
 Flask-SocketIO>=5.3
 
+# Licensing: Ed25519 sign/verify for offline license keys (app.licensing)
+cryptography>=42.0
+
 # Audio: notch filter bank, echo cancellation, FFT detection (app.audio)
 sounddevice>=0.4
 scipy>=1.11

@@ -473,6 +473,48 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   file locally if offline-first turns out to matter more than initially
   assumed.
 
+## Distribution: single-file .exe + offline licensing
+
+- **Packaging** (`x32vocal.spec`, `launcher.py`, `build_windows.bat`,
+  `docs/PACKAGING.md`): PyInstaller `--onefile` build producing
+  `dist/X32VocalAI.exe`. `launcher.py` is the entry — it starts the web
+  server (`app.main.main`) and opens the browser at the UI. The spec bundles
+  the Flask template dir, `sounddevice`'s PortAudio data/DLLs
+  (`collect_data_files`/`collect_dynamic_libs`), and the dynamic
+  `hiddenimports` flask-socketio/mido need (`engineio.async_drivers.threading`,
+  `mido.backends.rtmidi`); it excludes `onnxruntime`/`torch` (ML not built,
+  training-only). **Must be built on Windows** (PyInstaller targets its host
+  OS). The **ASIO PortAudio DLL** gotcha from the audio section applies to the
+  bundle too — pin `sounddevice==0.4.4` or swap the DLL before building, per
+  `docs/PACKAGING.md`.
+- **Licensing** (`app/licensing/`, offline Ed25519-signed keys — chosen model:
+  offline, machine-locked, 14-day trial):
+  - `keys.py`: token = `X32VOCAL1.<b64url(payload)>.<b64url(ed25519 sig)>`;
+    `sign_token`/`verify_token`, `LicenseInfo` (name/email/tier/issued/
+    expires/machine), `machine_fingerprint()` (Windows `MachineGuid` +
+    `uuid.getnode()` + platform, sha256) and short `machine_code()`.
+    Machine-lock stores the short **machine code** (what the licensee sends
+    the vendor), compared case/dash-insensitively.
+  - `manager.py` `LicenseManager.status()` → states: `licensed`,
+    `machine_mismatch`, `expired_license`, `trial`, `trial_expired`,
+    `unlicensed`; `.functional` (licensed|trial) gates the app. `activate()`
+    verifies signature + expiry + machine and persists the token;
+    `store.py` keeps the token + trial state under `%LOCALAPPDATA%\X32VocalAI`
+    (clock-rollback guarded; deleting it resets the trial — the usual offline
+    limit).
+  - **Embedded public key only** (`public_key.py`, empty until the vendor runs
+    `python -m app.tools.license_gen init`, which writes the **private** key to
+    `secrets/` — gitignored, never shipped — and fills in the public half).
+    `app/tools/license_gen.py` (`init`/`issue`/`verify`) is the vendor-only key
+    mint, never bundled in the exe.
+  - **Wiring**: `main.py` evaluates the license at startup and only starts
+    OSC/MIDI/audio when `.functional`; `app.web.routes` `before_request` gate
+    returns 403 for `/api/*` (except `/api/license/*`) when not functional, so
+    the UI's License screen (badge top-right / auto-shown overlay when the
+    trial ends) can always take a key via `POST /api/license/activate`.
+  - **Honest scope**: no client-side scheme is uncrackable; signed +
+    machine-locked keys deter casual sharing, not a determined cracker.
+
 ## Build phases
 1. **Plumbing**: ASIO passthrough Card 1–4 → app → Card 1–4, latency measurement.
    **Latency measurement is implemented cable-free** (`app/audio/latency.py`,

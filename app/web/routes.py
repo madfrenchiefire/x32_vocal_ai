@@ -32,10 +32,79 @@ from app.osc.scribble_strip import read_all_channel_configs
 
 bp = Blueprint("main", __name__)
 
+# API paths reachable even when the app is unlicensed / the trial has
+# expired -- everything else under /api/ is gated (see _license_gate).
+_LICENSE_OPEN_PREFIXES = ("/api/license",)
+
 
 @bp.route("/")
 def index() -> str:
     return render_template("index.html")
+
+
+@bp.before_request
+def _license_gate():
+    """Block the functional API when there is no valid license and the trial
+    has ended. The index page and the /api/license/* endpoints stay open so
+    the user can still see the license screen and enter a key. Inert when no
+    license manager is wired (tests, ad-hoc create_app)."""
+    manager = current_app.extensions.get("license_manager")
+    if manager is None:
+        return None
+    path = request.path
+    if not path.startswith("/api/") or path.startswith(_LICENSE_OPEN_PREFIXES):
+        return None
+    if manager.status().functional:
+        return None
+    return jsonify(
+        error="This copy isn't licensed. Enter a license key to continue.",
+        license_required=True,
+    ), 403
+
+
+# -- license ---------------------------------------------------------------
+
+
+@bp.route("/api/license/status")
+def license_status():
+    manager = current_app.extensions.get("license_manager")
+    if manager is None:
+        # No licensing in this build/run -- report "functional" so the UI
+        # doesn't nag (dev/test mode).
+        return jsonify(state="disabled", functional=True, message="Licensing not active in this run.",
+                       machine_code="", licensee=None, tier=None, expires=None, trial_days_remaining=None)
+    return jsonify(**manager.status().to_dict())
+
+
+@bp.route("/api/license/activate", methods=["POST"])
+def license_activate():
+    manager = current_app.extensions.get("license_manager")
+    diagnostics = current_app.extensions["diagnostics"]
+    if manager is None:
+        return jsonify(error="licensing is not active in this run"), 400
+    body = request.get_json(force=True, silent=True) or {}
+    token = (body.get("token") or "").strip()
+    if not token:
+        return jsonify(error="no license key provided"), 400
+    diagnostics.log_user_action("license_activate", {"token_prefix": token[:12]})
+    from app.licensing.keys import LicenseError
+
+    try:
+        status = manager.activate(token)
+    except LicenseError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(**status.to_dict())
+
+
+@bp.route("/api/license/deactivate", methods=["POST"])
+def license_deactivate():
+    manager = current_app.extensions.get("license_manager")
+    diagnostics = current_app.extensions["diagnostics"]
+    if manager is None:
+        return jsonify(error="licensing is not active in this run"), 400
+    diagnostics.log_user_action("license_deactivate")
+    manager.deactivate()
+    return jsonify(**manager.status().to_dict())
 
 
 # -- helpers ---------------------------------------------------------------

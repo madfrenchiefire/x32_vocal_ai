@@ -17,3 +17,12 @@ snapshots/**/*.zip
 
 *.onnx
 .DS_Store
+
+# License signing key(s) -- the private half must NEVER be committed or
+# shipped. Only app/licensing/public_key.py (the public half) is tracked.
+secrets/
+
+# PyInstaller build output
+build/
+dist/
+*.spec.bak

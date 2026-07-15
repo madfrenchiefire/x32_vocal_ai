@@ -213,8 +213,34 @@
 <body>
   <header class="topbar">
     <h1>X32 AI Feedback Suppression</h1>
+    <span id="license-badge" class="badge status-pending" style="cursor: pointer;" title="License status — click to enter a key"><span id="license-badge-text"></span></span>
     <span id="connection-badge" class="badge status-pending"><span class="dot"></span><span id="connection-badge-text">Checking…</span></span>
   </header>
+
+  <!-- License entry / activation. Shown as a blocking overlay when the app
+       is unlicensed and the trial has ended; also openable from the badge. -->
+  <div id="license-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:1000; align-items:center; justify-content:center;">
+    <section class="card" style="max-width: 32rem; width: 90%;">
+      <h2 id="license-title">Activate X32 Vocal AI</h2>
+      <p id="license-message" style="margin: 0.4rem 0;"></p>
+      <div class="field">
+        <label>Machine code</label>
+        <code id="license-machine-code" style="user-select: all;"></code>
+      </div>
+      <p class="hint" style="font-size: 0.85em; opacity: 0.8;">
+        For a machine-locked key, send this machine code to the vendor. Paste the key you receive below.
+      </p>
+      <div class="field" style="flex-direction: column; align-items: stretch;">
+        <label for="license-key-input">License key</label>
+        <textarea id="license-key-input" rows="3" style="width: 100%; font-family: monospace;" placeholder="X32VOCAL1.…"></textarea>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="license-activate-btn">Activate</button>
+        <button class="btn btn-secondary" id="license-close-btn">Close</button>
+      </div>
+      <p id="license-status-line" class="status" style="margin-top: 0.5rem;"></p>
+    </section>
+  </div>
 
   <main>
     <div class="grid-3">
@@ -1273,6 +1299,58 @@
       setStatus("rta-status", "Stopped.");
     });
 
+    // -- licensing -----------------------------------------------------------
+    function showLicenseOverlay(show) {
+      el("license-overlay").style.display = show ? "flex" : "none";
+    }
+
+    function applyLicenseStatus(s) {
+      const badge = el("license-badge");
+      const text = el("license-badge-text");
+      let label, cls;
+      if (s.state === "licensed" || s.state === "disabled") {
+        label = s.state === "disabled" ? "Dev" : (s.tier ? s.tier.toUpperCase() : "Licensed");
+        cls = "badge status-connected";
+      } else if (s.state === "trial") {
+        label = `Trial: ${s.trial_days_remaining}d`;
+        cls = "badge status-pending";
+      } else {
+        label = "Unlicensed";
+        cls = "badge status-disconnected";
+      }
+      badge.className = cls;
+      text.textContent = label;
+      el("license-machine-code").textContent = s.machine_code || "(n/a)";
+      el("license-message").textContent = s.message || "";
+      // Block the app when it isn't functional (trial ended / wrong machine).
+      showLicenseOverlay(!s.functional);
+      el("license-close-btn").style.display = s.functional ? "" : "none";
+    }
+
+    async function loadLicense() {
+      try {
+        applyLicenseStatus(await api("/api/license/status"));
+      } catch (err) {
+        /* licensing not active in this run -- leave badge as-is */
+      }
+    }
+
+    el("license-badge").addEventListener("click", () => showLicenseOverlay(true));
+    el("license-close-btn").addEventListener("click", () => showLicenseOverlay(false));
+    el("license-activate-btn").addEventListener("click", async () => {
+      const token = el("license-key-input").value.trim();
+      if (!token) { setStatus("license-status-line", "Paste your license key first.", "error"); return; }
+      try {
+        const s = await api("/api/license/activate", { method: "POST", body: JSON.stringify({ token }) });
+        setStatus("license-status-line", "Activated. " + (s.message || ""), "success");
+        applyLicenseStatus(s);
+        if (s.functional) setTimeout(() => location.reload(), 900);
+      } catch (err) {
+        setStatus("license-status-line", `Activation failed: ${err}`, "error");
+      }
+    });
+
+    loadLicense();
     loadConsoleStatus();
     loadDevices();
     loadChannels();
