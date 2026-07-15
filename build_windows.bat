@@ -1,5 +1,5 @@
 @echo off
-REM Build X32VocalAI.exe on Windows. See docs/PACKAGING.md for details
+REM Build X32SonicSniper.exe on Windows. See docs/PACKAGING.md for details
 REM (ASIO DLL, license keypair, code-signing, selling keys).
 
 setlocal
@@ -25,13 +25,13 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
 echo Building...
-pyinstaller x32vocal.spec
+pyinstaller x32sonicsniper.spec
 if errorlevel 1 (
     echo Build failed.
     exit /b 1
 )
 
 echo.
-echo Done: dist\X32VocalAI.exe
+echo Done: dist\X32SonicSniper.exe
 echo Reminder: verify ASIO devices appear in Device Setup (see docs/PACKAGING.md).
 endlocal

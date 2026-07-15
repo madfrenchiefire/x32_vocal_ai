@@ -22,11 +22,11 @@ def _make_osc(fake_x32, diagnostics, app_state) -> OscConnection:
 def test_save_console_scene_sends_documented_form(fake_x32, diagnostics, app_state):
     osc = _make_osc(fake_x32, diagnostics, app_state)
     try:
-        save_console_scene(osc, diagnostics, 45, name="X32VOCAL SAFETY", note="pre-app")
+        save_console_scene(osc, diagnostics, 45, name="SNIPER SAFETY", note="pre-app")
     finally:
         osc.close()
 
-    assert fake_x32.saved_scenes == [("scene", 45, "X32VOCAL SAFETY", "pre-app")]
+    assert fake_x32.saved_scenes == [("scene", 45, "SNIPER SAFETY", "pre-app")]
 
 
 def test_save_console_scene_default_note_has_timestamp(fake_x32, diagnostics, app_state):

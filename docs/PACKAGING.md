@@ -1,6 +1,6 @@
 # Building the single-file `.exe` and selling license keys
 
-This produces `dist/X32VocalAI.exe` — one double-clickable file that starts
+This produces `dist/X32SonicSniper.exe` — one double-clickable file that starts
 the local server and opens the UI in the browser — plus the offline license
 system used to sell it.
 
@@ -41,10 +41,10 @@ already sold — don't, unless you mean to (it warns you).
 ## Build the exe
 
 ```bat
-pyinstaller x32vocal.spec
+pyinstaller x32sonicsniper.spec
 ```
 
-Result: `dist\X32VocalAI.exe`.
+Result: `dist\X32SonicSniper.exe`.
 
 ### The ASIO DLL step (important)
 
@@ -53,7 +53,7 @@ Result: `dist\X32VocalAI.exe`.
 card path needs ASIO. Two options:
 
 - **Pin the older wheel before building:** `pip install "sounddevice==0.4.4"`
-  (older wheels bundled ASIO), then `pyinstaller x32vocal.spec`. Simplest.
+  (older wheels bundled ASIO), then `pyinstaller x32sonicsniper.spec`. Simplest.
 - **Swap the DLL:** replace the PortAudio DLL inside the venv's
   `sounddevice\_sounddevice_data\portaudio-binaries\` with an ASIO-enabled
   build *before* running PyInstaller (the spec collects whatever is there).
@@ -63,9 +63,9 @@ see ASIO devices. If the list is empty, the bundled DLL still lacks ASIO.
 
 ### Shipping alongside the exe
 
-Put a `config.json` next to `X32VocalAI.exe` if you want non-default settings
+Put a `config.json` next to `X32SonicSniper.exe` if you want non-default settings
 (e.g. `{"audio_block_size": 64}`). The app also writes per-user data
-(license, trial state, logs) under `%LOCALAPPDATA%\X32VocalAI`, so those
+(license, trial state, logs) under `%LOCALAPPDATA%\X32SonicSniper`, so those
 survive reinstalls.
 
 ### Antivirus note
@@ -96,14 +96,14 @@ python -m app.tools.license_gen issue --name "Jane Doe" --expires 2027-01-01
 python -m app.tools.license_gen issue --name "Jane Doe" --expires +365d
 ```
 
-The command prints the license key (a single `X32VOCAL1.…` string). The buyer
+The command prints the license key (a single `X32SNIPER1.…` string). The buyer
 pastes it into the app's **License** screen (click the license badge top-right,
 or it appears automatically when the trial ends).
 
 Verify a key you produced:
 
 ```bat
-python -m app.tools.license_gen verify --token X32VOCAL1.xxxx.yyyy
+python -m app.tools.license_gen verify --token X32SNIPER1.xxxx.yyyy
 ```
 
 ---

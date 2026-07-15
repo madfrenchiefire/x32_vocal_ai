@@ -1022,6 +1022,6 @@ def test_activate_route_rejects_bad_key(tmp_path, app_state, diagnostics):
     mgr, _priv, _pub = _licensed_manager(tmp_path, trial_days=0, activate=False)
     app, _sio, _config = _app(tmp_path, app_state, diagnostics, license_manager=mgr)
     client = app.test_client()
-    resp = client.post("/api/license/activate", data=json.dumps({"token": "X32VOCAL1.bad.bad"}),
+    resp = client.post("/api/license/activate", data=json.dumps({"token": "X32SNIPER1.bad.bad"}),
                        content_type="application/json")
     assert resp.status_code == 400

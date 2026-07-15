@@ -70,7 +70,7 @@ auth claim** (`admin: true`) — that's what the rules and functions check.
 `wrong_machine` as authoritative (lock); a network failure is NOT one of
 these, so the app stays running on its cached token.
 
-`token` is an `X32VOCAL1.…` Ed25519 token the app verifies offline with the
+`token` is an `X32SNIPER1.…` Ed25519 token the app verifies offline with the
 embedded public key — the same format `app/licensing` already validates, plus
 a `recheck` datetime telling the app when to phone home next.
 

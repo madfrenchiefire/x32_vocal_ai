@@ -1,7 +1,7 @@
 """Desktop entrypoint for the packaged (.exe) build.
 
 Starts the local web server and opens the default browser at the UI. This
-is the PyInstaller entry script (see x32vocal.spec) -- end users just
+is the PyInstaller entry script (see x32sonicsniper.spec) -- end users just
 double-click the .exe; the console window shows startup/license/errors and
 the app itself lives in the browser tab that opens.
 
@@ -34,7 +34,7 @@ def run() -> int:
     # config.json sits next to the .exe (or the cwd when run from source).
     config = load_config("config.json")
     url = f"http://{config.web_host}:{config.web_port}"
-    print(f"X32 Vocal AI is starting. Open {url} if the browser doesn't.")
+    print(f"X32 SonicSniper is starting. Open {url} if the browser doesn't.")
     threading.Timer(BROWSER_OPEN_DELAY_SEC, _open_browser, args=[url]).start()
     return main([])
 

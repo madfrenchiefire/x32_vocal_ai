@@ -17,7 +17,7 @@ Workflow:
 
     # subscription (expires): --expires 2027-01-01  or  --expires +365d
     # verify a key you produced:
-    python -m app.tools.license_gen verify --token X32VOCAL1.xxxx.yyyy
+    python -m app.tools.license_gen verify --token X32SNIPER1.xxxx.yyyy
 
 Sell the key however you like (Gumroad, Lemon Squeezy, Stripe...); this tool
 just mints the signed token you deliver to the buyer.

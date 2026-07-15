@@ -2,7 +2,7 @@
 
 Token format (a single pasteable string):
 
-    X32VOCAL1.<base64url(payload_json)>.<base64url(ed25519_signature)>
+    X32SNIPER1.<base64url(payload_json)>.<base64url(ed25519_signature)>
 
 `payload_json` is a compact JSON object the vendor signs with the private
 key; the app verifies the signature with the embedded public key and then
@@ -38,7 +38,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-TOKEN_PREFIX = "X32VOCAL1"
+TOKEN_PREFIX = "X32SNIPER1"
 TOKEN_FORMAT_VERSION = 1
 
 

@@ -27,7 +27,7 @@ SCENE_SLOT_MIN, SCENE_SLOT_MAX = 0, 99
 # an ordinary parameter query.
 SAVE_TIMEOUT_SEC = 10.0
 
-DEFAULT_SCENE_NAME = "X32VOCAL SAFETY"
+DEFAULT_SCENE_NAME = "SNIPER SAFETY"
 
 
 class SceneSaveError(Exception):

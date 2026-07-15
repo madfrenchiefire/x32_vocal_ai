@@ -1,14 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller build spec for the single-file X32 Vocal AI .exe.
+"""PyInstaller build spec for the single-file X32 SonicSniper .exe.
 
 Build on Windows (PyInstaller targets the OS it runs on -- a Windows .exe
 must be built on Windows):
 
     pip install -r requirements.txt pyinstaller
     python -m app.tools.license_gen init        # once, embeds your public key
-    pyinstaller x32vocal.spec
+    pyinstaller x32sonicsniper.spec
 
-Output: dist/X32VocalAI.exe (one file). See docs/PACKAGING.md for the ASIO
+Output: dist/X32SonicSniper.exe (one file). See docs/PACKAGING.md for the ASIO
 DLL step and antivirus notes.
 """
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
@@ -57,7 +57,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="X32VocalAI",
+    name="X32SonicSniper",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

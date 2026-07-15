@@ -47,7 +47,7 @@ NUM_CHANNELS = 32
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m app.main",
-        description="Run the X32 AI Feedback Suppression app (OSC + MIDI + audio + web UI).",
+        description="Run the X32 SonicSniper app (OSC + MIDI + audio + web UI).",
     )
     parser.add_argument("--config", default=None, help="Path to config.json (default: ./config.json if present)")
     return parser

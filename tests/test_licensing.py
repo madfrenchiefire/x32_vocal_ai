@@ -167,7 +167,7 @@ def test_deactivate_reverts_to_trial(store, keypair):
 
 def test_junk_stored_token_falls_through_to_trial(store, keypair):
     _priv, pub = keypair
-    store.save_token("X32VOCAL1.garbage.garbage")
+    store.save_token("X32SNIPER1.garbage.garbage")
     mgr = _manager(store, pub, trial_days=14)
     assert mgr.status().state == "trial"  # junk token != a license, but trial still valid
 
@@ -178,8 +178,8 @@ def test_junk_stored_token_falls_through_to_trial(store, keypair):
 def test_store_token_roundtrip(tmp_path):
     store = LicenseStore(tmp_path / "d")
     assert store.load_token() is None
-    store.save_token("  X32VOCAL1.a.b  ")
-    assert store.load_token() == "X32VOCAL1.a.b"
+    store.save_token("  X32SNIPER1.a.b  ")
+    assert store.load_token() == "X32SNIPER1.a.b"
     store.clear_token()
     assert store.load_token() is None
 

@@ -1,3 +1,3 @@
-"""X32 AI Feedback Suppression application package."""
+"""X32 SonicSniper application package."""
 
 __version__ = "0.1.0"

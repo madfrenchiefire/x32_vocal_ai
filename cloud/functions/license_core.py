@@ -3,7 +3,7 @@ unit-tests without a live project (cloud/functions/main.py is the thin
 Firebase wrapper that calls these).
 
 Tokens are Ed25519-signed and format-compatible with the app's verifier
-(app/licensing/keys.py verify_token): same X32VOCAL1.<body>.<sig> shape.
+(app/licensing/keys.py verify_token): same X32SNIPER1.<body>.<sig> shape.
 The online model adds a `recheck` field -- the ISO datetime by which the app
 must phone home again -- so a disabled license stops working within about a
 token lifetime even though the key itself never expires (lifetime licenses).
@@ -24,7 +24,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-TOKEN_PREFIX = "X32VOCAL1"
+TOKEN_PREFIX = "X32SNIPER1"
 TOKEN_FORMAT_VERSION = 1
 DEFAULT_TOKEN_TTL_DAYS = 10  # app rechecks weekly; ~10d covers a missed week + a no-wifi gig
 

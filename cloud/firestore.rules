@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Firestore security rules for the X32 Vocal AI license store.
+// Firestore security rules for the X32 SonicSniper license store.
 //
 // Enforcement principle: the app never touches Firestore directly (it calls
 // Cloud Functions). The portal (Firebase Hosting + Auth) reads licenses

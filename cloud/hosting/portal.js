@@ -1,4 +1,4 @@
-// X32 Vocal AI license portal — customer self-service + admin.
+// X32 SonicSniper license portal — customer self-service + admin.
 //
 // Plain ES modules, Firebase Web SDK from the gstatic CDN (a cloud page is
 // inherently online, so a CDN dependency is fine here). All license MUTATIONS

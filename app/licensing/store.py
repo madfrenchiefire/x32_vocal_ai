@@ -18,11 +18,11 @@ from pathlib import Path
 
 
 def default_data_dir() -> Path:
-    r"""Per-user data directory: %LOCALAPPDATA%\X32VocalAI on Windows,
+    r"""Per-user data directory: %LOCALAPPDATA%\X32SonicSniper on Windows,
     $XDG_DATA_HOME/x32_vocal_ai (or ~/.local/share/...) elsewhere."""
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
-        return Path(base) / "X32VocalAI"
+        return Path(base) / "X32SonicSniper"
     base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     return Path(base) / "x32_vocal_ai"
 

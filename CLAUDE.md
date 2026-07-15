@@ -1,4 +1,4 @@
-# X32 AI Feedback Suppression — Project Spec
+# X32 SonicSniper — Project Spec
 
 Real-time microphone feedback suppression for the Behringer X32, running as a locally
 hosted app on a PC connected via the X-USB card (audio + MIDI) and Ethernet (OSC).
@@ -475,9 +475,9 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
 
 ## Distribution: single-file .exe + offline licensing
 
-- **Packaging** (`x32vocal.spec`, `launcher.py`, `build_windows.bat`,
+- **Packaging** (`x32sonicsniper.spec`, `launcher.py`, `build_windows.bat`,
   `docs/PACKAGING.md`): PyInstaller `--onefile` build producing
-  `dist/X32VocalAI.exe`. `launcher.py` is the entry — it starts the web
+  `dist/X32SonicSniper.exe`. `launcher.py` is the entry — it starts the web
   server (`app.main.main`) and opens the browser at the UI. The spec bundles
   the Flask template dir, `sounddevice`'s PortAudio data/DLLs
   (`collect_data_files`/`collect_dynamic_libs`), and the dynamic
@@ -489,7 +489,7 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
   `docs/PACKAGING.md`.
 - **Licensing** (`app/licensing/`, offline Ed25519-signed keys — chosen model:
   offline, machine-locked, 14-day trial):
-  - `keys.py`: token = `X32VOCAL1.<b64url(payload)>.<b64url(ed25519 sig)>`;
+  - `keys.py`: token = `X32SNIPER1.<b64url(payload)>.<b64url(ed25519 sig)>`;
     `sign_token`/`verify_token`, `LicenseInfo` (name/email/tier/issued/
     expires/machine), `machine_fingerprint()` (Windows `MachineGuid` +
     `uuid.getnode()` + platform, sha256) and short `machine_code()`.
@@ -499,7 +499,7 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
     `machine_mismatch`, `expired_license`, `trial`, `trial_expired`,
     `unlicensed`; `.functional` (licensed|trial) gates the app. `activate()`
     verifies signature + expiry + machine and persists the token;
-    `store.py` keeps the token + trial state under `%LOCALAPPDATA%\X32VocalAI`
+    `store.py` keeps the token + trial state under `%LOCALAPPDATA%\X32SonicSniper`
     (clock-rollback guarded; deleting it resets the trial — the usual offline
     limit).
   - **Embedded public key only** (`public_key.py`, empty until the vendor runs
