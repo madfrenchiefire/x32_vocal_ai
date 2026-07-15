@@ -1,4 +1,6 @@
-// X32 SonicSniper license portal — customer self-service + admin.
+// Simple Computers 101 license portal — customer self-service + admin.
+// Manages licenses across every app sold (product id per license); X32
+// SonicSniper is the first.
 //
 // Plain ES modules, Firebase Web SDK from the gstatic CDN (a cloud page is
 // inherently online, so a CDN dependency is fine here). All license MUTATIONS
@@ -111,6 +113,7 @@ async function loadLicenses(user) {
 function customerRow(lic) {
   const tr = document.createElement("tr");
   tr.innerHTML = `
+    <td>${lic.productId || "—"}</td>
     <td><code>${lic.key}</code></td>
     <td>${lic.type === "monthly" ? "Monthly" : "Lifetime"}</td>
     <td><span class="pill ${lic.status === "active" ? "active" : "disabled"}">${lic.status}</span></td>
@@ -147,6 +150,7 @@ $("a-create-btn").addEventListener("click", async () => {
   try {
     const res = await call("admin_create", {
       ownerEmail: email, ownerName: $("a-name").value.trim(), type, tier: "pro", expires,
+      productId: $("a-product").value,
     });
     setStatus("admin-status", `Created ${res.key} for ${email}.`, "success");
     await loadAllLicenses();
@@ -169,13 +173,17 @@ function renderAdminRows() {
   const filter = $("a-search").value.trim().toLowerCase();
   const body = $("admin-body");
   body.innerHTML = "";
-  ALL.filter((l) => !filter || (l.ownerEmail || "").includes(filter) || (l.key || "").toLowerCase().includes(filter))
+  ALL.filter((l) => !filter
+        || (l.ownerEmail || "").includes(filter)
+        || (l.key || "").toLowerCase().includes(filter)
+        || (l.productId || "").toLowerCase().includes(filter))
      .forEach((l) => body.appendChild(adminRow(l)));
 }
 
 function adminRow(lic) {
   const tr = document.createElement("tr");
   tr.innerHTML = `
+    <td>${lic.productId || "—"}</td>
     <td><code>${lic.key}</code></td>
     <td>${lic.ownerEmail || ""}</td>
     <td>${lic.type}</td>

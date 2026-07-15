@@ -512,8 +512,24 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
     returns 403 for `/api/*` (except `/api/license/*`) when not functional, so
     the UI's License screen (badge top-right / auto-shown overlay when the
     trial ends) can always take a key via `POST /api/license/activate`.
+  - **Online mode** (`AppConfig.license_mode = "online"` + `license_server_url`,
+    `app/licensing/online.py`, backend in `cloud/`): server-authoritative,
+    node-locked, per-product. The app POSTs `{app, key, machineCode}` to the
+    `activate`/`check` Cloud Functions (plain HTTP — no Firebase SDK in the
+    app); the server binds the machine, checks status/expiry, and returns a
+    short-lived Ed25519 token (`recheck` horizon ~10 days) the app verifies
+    with the **same** embedded public key. `LicenseRefresher` (background
+    thread) re-checks weekly-ish (when within ~4 days of the horizon);
+    **fail-safe** — a network failure keeps the cached token (a no-internet
+    gig never dies), only an explicit `disabled`/`expired`/`wrong_machine`
+    verdict clears it (adds the `recheck_required` status). Tokens carry an
+    `app` (product id, `AppConfig.product_id`, default `x32-sonicsniper`);
+    the app rejects a token for a different product, so one signing key
+    covers many apps. The web portal (`cloud/hosting/`, "Simple Computers
+    101 License Portal") manages licenses across all products.
   - **Honest scope**: no client-side scheme is uncrackable; signed +
     machine-locked keys deter casual sharing, not a determined cracker.
+    Online mode adds real revocation + machine control on top.
 
 ## Build phases
 1. **Plumbing**: ASIO passthrough Card 1–4 → app → Card 1–4, latency measurement.

@@ -34,6 +34,9 @@ from app.midi.service import MidiService
 from app.osc.assign_set import snapshot_assign_sets
 from app.osc.console_eq_sync import ConsoleEqSync
 from app.licensing.manager import LicenseManager
+from app.licensing.online import LicenseRefresher, OnlineLicenseClient
+from app.licensing.public_key import PUBLIC_KEY_HEX
+from app.licensing.store import LicenseStore
 from app.osc.gain_assist import GainAssist
 from app.osc.connection import FirmwareTooOldError, OscConnection, OscConnectionError
 from app.osc.routing_apply import RoutingApplyError, bypass_channel
@@ -185,7 +188,17 @@ def main(argv: list[str] | None = None) -> int:
     # real services. When neither holds, the web server still comes up (so
     # the user can enter a key on the License screen) but OSC/MIDI/audio are
     # not started -- and the API is blocked by app.web.routes' license gate.
-    license_manager = LicenseManager()
+    license_store = LicenseStore()
+    license_manager = LicenseManager(store=license_store, product_id=config.product_id)
+    # Online mode (config.license_mode == "online"): activate against the
+    # license server and re-verify periodically in the background. Offline
+    # mode (default) uses pasted vendor-signed keys, no client/refresher.
+    online_client = None
+    license_refresher = None
+    if config.license_mode == "online" and config.license_server_url:
+        online_client = OnlineLicenseClient(config, license_store, diagnostics, PUBLIC_KEY_HEX)
+        license_refresher = LicenseRefresher(online_client, diagnostics)
+        license_refresher.start()
     license_status = license_manager.evaluate_at_startup(diagnostics)
     if license_status.functional:
         osc = _start_osc(config, diagnostics, state)
@@ -249,12 +262,14 @@ def main(argv: list[str] | None = None) -> int:
             config, state, diagnostics,
             osc=osc, audio_engine=audio_engine, midi_service=midi_service, config_path=config_path,
             watchdog=watchdog, gain_assist=gain_assist, console_eq_sync=console_eq_sync,
-            license_manager=license_manager,
+            license_manager=license_manager, license_online_client=online_client,
         )
     finally:
         watchdog.trigger_full_restore(reason="clean_shutdown")
         watchdog.stop()
         gain_assist.stop()
+        if license_refresher is not None:
+            license_refresher.stop()
         # Clean shutdown leaves the console stock (gig-safe principle #3), so
         # put back any channel's console EQ the internal-EQ mode was managing.
         # (A *crash* deliberately keeps the notches -- see the watchdog: mid-

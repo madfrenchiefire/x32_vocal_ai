@@ -66,12 +66,16 @@ class LicenseManager:
         public_key_hex: str | None = None,
         trial_days: int = DEFAULT_TRIAL_DAYS,
         fingerprint: str | None = None,
+        product_id: str | None = None,
         now_provider=None,
     ) -> None:
         self.store = store or LicenseStore()
         self.public_key_hex = PUBLIC_KEY_HEX if public_key_hex is None else public_key_hex
         self.trial_days = trial_days
         self.fingerprint = fingerprint or machine_fingerprint()
+        # When set, a token whose `app` names a different product is ignored
+        # (falls through to trial) -- one signing key can cover many apps.
+        self.product_id = product_id
         self._now = now_provider or (lambda: datetime.now(timezone.utc))
 
     # -- public API ----------------------------------------------------------
@@ -130,6 +134,8 @@ class LicenseManager:
             info = verify_token(token, self.public_key_hex)
         except LicenseError:
             return None  # fall through to trial -- a junk token isn't a license
+        if self.product_id is not None and not info.matches_product(self.product_id):
+            return None  # a token for another product isn't a license for this app
         if info.is_expired(self._now().date()):
             return LicenseStatus(
                 state="expired_license",
@@ -147,7 +153,30 @@ class LicenseManager:
                 licensee=info.name,
                 tier=info.tier,
             )
+        # Online tokens carry a `recheck` horizon: the app must re-verify with
+        # the server by then. Past it (and no successful refresh), the app is
+        # not functional until it reconnects -- but note this is a *hard*
+        # horizon well beyond the weekly cadence, so a short no-internet
+        # stretch (a gig) never trips it.
+        if info.recheck is not None and self._past_recheck(info.recheck):
+            return LicenseStatus(
+                state="recheck_required",
+                message="Please connect to the internet to re-verify this license.",
+                machine_code=self.machine_code(),
+                licensee=info.name,
+                tier=info.tier,
+                expires=info.expires,
+            )
         return self._licensed_status(info)
+
+    def _past_recheck(self, recheck: str) -> bool:
+        try:
+            horizon = datetime.fromisoformat(recheck)
+        except ValueError:
+            return False  # unparseable -> don't lock on it
+        if horizon.tzinfo is None:
+            horizon = horizon.replace(tzinfo=timezone.utc)
+        return self._now() >= horizon
 
     def _licensed_status(self, info: LicenseInfo) -> LicenseStatus:
         return LicenseStatus(

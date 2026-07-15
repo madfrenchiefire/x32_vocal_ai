@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>X32 SonicSniper — Licenses</title>
+  <title>Simple Computers 101 — License Portal</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -53,7 +53,7 @@
 </head>
 <body>
   <header>
-    <h1>X32 SonicSniper — License Portal</h1>
+    <h1>Simple Computers 101 — License Portal</h1>
     <div>
       <span id="who" class="muted"></span>
       <button id="signout" class="secondary hidden">Sign out</button>
@@ -96,7 +96,7 @@
       <h2>My licenses</h2>
       <div id="licenses-empty" class="muted hidden">No licenses on this account yet.</div>
       <table id="licenses-table" class="hidden">
-        <thead><tr><th>Key</th><th>Type</th><th>Status</th><th>Expires</th><th>This PC</th><th></th></tr></thead>
+        <thead><tr><th>Product</th><th>Key</th><th>Type</th><th>Status</th><th>Expires</th><th>This PC</th><th></th></tr></thead>
         <tbody id="licenses-body"></tbody>
       </table>
       <p class="status" id="licenses-status"></p>
@@ -106,6 +106,13 @@
     <section class="card hidden" id="admin-card">
       <h2>Admin — create license</h2>
       <div class="row">
+        <div>
+          <label>Product</label>
+          <!-- Add every app you sell here (value = the app's product_id). -->
+          <select id="a-product">
+            <option value="x32-sonicsniper">X32 SonicSniper</option>
+          </select>
+        </div>
         <div><label>Customer email</label><input type="email" id="a-email"></div>
         <div><label>Name</label><input type="text" id="a-name"></div>
         <div>
@@ -123,7 +130,7 @@
         <div style="flex:0;"><button id="a-refresh-btn" class="secondary">Refresh</button></div>
       </div>
       <table id="admin-table">
-        <thead><tr><th>Key</th><th>Owner</th><th>Type</th><th>Status</th><th>Expires</th><th>Machine</th><th></th></tr></thead>
+        <thead><tr><th>Product</th><th>Key</th><th>Owner</th><th>Type</th><th>Status</th><th>Expires</th><th>Machine</th><th></th></tr></thead>
         <tbody id="admin-body"></tbody>
       </table>
     </section>

@@ -95,6 +95,11 @@ class LicenseInfo:
     # None for a purely offline signed key. See cloud/ for the server that
     # issues these short-lived tokens.
     recheck: str | None = None
+    # Product this license is for (e.g. "x32-sonicsniper"). One signing key
+    # can cover many apps sold under the same vendor; each app verifies the
+    # token's `app` matches its own product id, so a key for another product
+    # can't unlock this one. None on a legacy/single-product token.
+    app: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "LicenseInfo":
@@ -107,7 +112,12 @@ class LicenseInfo:
             expires=(payload["expires"] if payload.get("expires") else None),
             machine=(payload["machine"] if payload.get("machine") else None),
             recheck=(payload["recheck"] if payload.get("recheck") else None),
+            app=(payload["app"] if payload.get("app") else None),
         )
+
+    def matches_product(self, product_id: str) -> bool:
+        """True if this token isn't product-scoped, or is for `product_id`."""
+        return self.app is None or self.app == product_id
 
     def is_expired(self, today: date | None = None) -> bool:
         if not self.expires:

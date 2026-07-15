@@ -67,7 +67,19 @@ def build_online_payload(license: dict, machine_code: str, now: datetime, token_
         "expires": (expires.date().isoformat() if expires else None),
         "machine": machine_code,
         "recheck": (now + timedelta(days=token_ttl_days)).isoformat(),
+        # Product this token is for -- the app rejects a token whose app id
+        # doesn't match its own (one signing key, many products).
+        "app": str(license.get("productId", "")) or None,
     }
+
+
+def product_matches(license: dict | None, requested_app: str) -> bool:
+    """True if the license belongs to the app that's asking. An empty/absent
+    productId means a legacy single-product license (accepted)."""
+    if license is None:
+        return False
+    product = str(license.get("productId", "") or "")
+    return product == "" or product == requested_app
 
 
 def sign_online_token(payload: dict, private_key_hex: str) -> str:

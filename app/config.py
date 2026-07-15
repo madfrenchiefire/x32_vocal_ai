@@ -97,6 +97,19 @@ class AppConfig:
     web_host: str = "127.0.0.1"
     web_port: int = 8080
 
+    # --- Licensing (app.licensing) ---
+    # "offline" = verify a pasted, vendor-signed key locally (no server).
+    # "online"  = activate against the license server (cloud/), which binds
+    #   the machine and returns a short-lived signed token the app re-checks
+    #   weekly (fail-safe: keeps running if the server is merely unreachable).
+    license_mode: str = "offline"
+    # Base URL of the deployed Cloud Functions (online mode), e.g.
+    # "https://us-central1-<project>.cloudfunctions.net". None until set.
+    license_server_url: str | None = None
+    # This app's product id -- the license server scopes keys per product,
+    # and the app rejects a token issued for a different product.
+    product_id: str = "x32-sonicsniper"
+
     def resolved_log_dir(self) -> Path:
         return Path(self.log_dir)
 

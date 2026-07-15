@@ -80,20 +80,33 @@ def license_status():
 def license_activate():
     manager = current_app.extensions.get("license_manager")
     diagnostics = current_app.extensions["diagnostics"]
+    online_client = current_app.extensions.get("license_online_client")
     if manager is None:
         return jsonify(error="licensing is not active in this run"), 400
     body = request.get_json(force=True, silent=True) or {}
     token = (body.get("token") or "").strip()
     if not token:
         return jsonify(error="no license key provided"), 400
-    diagnostics.log_user_action("license_activate", {"token_prefix": token[:12]})
+    diagnostics.log_user_action("license_activate", {"key_prefix": token[:12]})
     from app.licensing.keys import LicenseError
 
     try:
-        status = manager.activate(token)
+        if online_client is not None:
+            # Online mode: the input is a license KEY -- activate it against
+            # the server, which binds this machine and returns a token the
+            # store now holds.
+            from app.licensing.online import OnlineUnreachable
+
+            try:
+                online_client.activate(token)
+            except OnlineUnreachable as exc:
+                return jsonify(error=f"Could not reach the license server: {exc}"), 503
+        else:
+            # Offline mode: the input is a pasted, vendor-signed token.
+            manager.activate(token)
     except LicenseError as exc:
         return jsonify(error=str(exc)), 400
-    return jsonify(**status.to_dict())
+    return jsonify(**manager.status().to_dict())
 
 
 @bp.route("/api/license/deactivate", methods=["POST"])

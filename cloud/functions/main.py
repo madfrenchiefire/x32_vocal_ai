@@ -16,6 +16,7 @@ Endpoints (HTTPS callable):
 """
 from __future__ import annotations
 
+import json
 import os
 import secrets
 from datetime import datetime, timezone
@@ -51,38 +52,44 @@ def _get_license(key: str) -> dict | None:
     return snap.to_dict() if snap.exists else None
 
 
-# -- app-facing: activate / check -------------------------------------------
+# -- app-facing: activate / check (plain HTTP -- the desktop app has no
+#    Firebase SDK, so these are on_request JSON endpoints, not callables) ----
 
 
-@https_fn.on_call(secrets=["LICENSE_PRIVATE_KEY"])
-def activate(req: https_fn.CallableRequest) -> dict:
-    key = (req.data or {}).get("key", "").strip()
-    machine = (req.data or {}).get("machineCode", "").strip()
-    if not key or not machine:
-        return {"error": "missing_fields"}
+def _json(body: dict, status: int = 200) -> https_fn.Response:
+    return https_fn.Response(json.dumps(body), status=status, mimetype="application/json")
+
+
+def _app_endpoint(req: https_fn.Request, decide) -> https_fn.Response:
+    if req.method != "POST":
+        return _json({"error": "method_not_allowed"}, 405)
+    data = req.get_json(silent=True) or {}
+    key = str(data.get("key", "")).strip()
+    machine = str(data.get("machineCode", "")).strip()
+    app_id = str(data.get("app", "")).strip()
+    if not key or not machine or not app_id:
+        return _json({"error": "missing_fields"}, 400)
     license = _get_license(key)
-    result, updates = core.decide_activation(license, machine, _now())
+    if not core.product_matches(license, app_id):
+        # Wrong product (or unknown key) -- don't leak which; report invalid.
+        return _json({"error": "invalid"}, 200)
+    result, updates = decide(license, machine, _now())
     if result != "ok":
-        return {"error": result}
+        return _json({"error": result}, 200)
     _db().collection(LICENSES).document(key).update(updates)
-    license = {**license, **updates}  # type: ignore[dict-item]
-    payload = core.build_online_payload(license, machine, _now())
-    return {"token": core.sign_online_token(payload, _private_key_hex())}
+    merged = {**license, **updates}  # type: ignore[dict-item]
+    payload = core.build_online_payload(merged, machine, _now())
+    return _json({"token": core.sign_online_token(payload, _private_key_hex())})
 
 
-@https_fn.on_call(secrets=["LICENSE_PRIVATE_KEY"])
-def check(req: https_fn.CallableRequest) -> dict:
-    key = (req.data or {}).get("key", "").strip()
-    machine = (req.data or {}).get("machineCode", "").strip()
-    if not key or not machine:
-        return {"error": "missing_fields"}
-    license = _get_license(key)
-    result, updates = core.decide_check(license, machine, _now())
-    if result != "ok":
-        return {"error": result}
-    _db().collection(LICENSES).document(key).update(updates)
-    payload = core.build_online_payload(license, machine, _now())
-    return {"token": core.sign_online_token(payload, _private_key_hex())}
+@https_fn.on_request(secrets=["LICENSE_PRIVATE_KEY"])
+def activate(req: https_fn.Request) -> https_fn.Response:
+    return _app_endpoint(req, core.decide_activation)
+
+
+@https_fn.on_request(secrets=["LICENSE_PRIVATE_KEY"])
+def check(req: https_fn.Request) -> https_fn.Response:
+    return _app_endpoint(req, core.decide_check)
 
 
 # -- portal: self-service deactivate ----------------------------------------
@@ -124,6 +131,7 @@ def admin_create(req: https_fn.CallableRequest) -> dict:
         "key": key,
         "ownerEmail": owner_email,
         "ownerName": data.get("ownerName", ""),
+        "productId": data.get("productId", "x32-sonicsniper"),
         "type": lic_type,
         "tier": data.get("tier", "pro"),
         "status": "active",

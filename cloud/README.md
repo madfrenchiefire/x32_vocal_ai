@@ -41,6 +41,7 @@ only its owner's rows (see `firestore.rules`).
 key           string   e.g. "XVAI-7F3A-9K2M-QP4T"
 ownerEmail    string   lowercased; links the license to a customer account
 ownerName     string
+productId     string   which app this license is for (e.g. "x32-sonicsniper")
 type          string   "monthly" | "lifetime"
 tier          string   "pro"
 status        string   "active" | "disabled"
@@ -55,15 +56,22 @@ note          string   admin-only
 `users/{uid}`: `{ email, admin: bool, createdAt }`. Admin is also a **custom
 auth claim** (`admin: true`) — that's what the rules and functions check.
 
-## API contract (HTTPS callable functions)
+## API contract
 
-| Function | Caller | In | Out |
-|---|---|---|---|
-| `activate` | app | `{key, machineCode}` | `{token}` or `{error}` |
-| `check` | app | `{key, machineCode}` | `{token}` or `{error}` |
-| `deactivate` | portal (auth) | `{key}` | `{ok}` or `{error}` |
-| `admin_create` | portal (admin) | `{ownerEmail, type, tier?, expires?, ownerName?}` | `{key}` |
-| `admin_update` | portal (admin) | `{key, status?/expires?/machineCode?/…}` | `{ok}` |
+`activate`/`check` are plain **HTTP POST** endpoints (the desktop app has no
+Firebase SDK); `deactivate`/`admin_*` are **callable** functions (the web
+portal, which needs the auth context).
+
+| Function | Kind | Caller | In | Out |
+|---|---|---|---|---|
+| `activate` | HTTP | app | `{app, key, machineCode}` | `{token}` or `{error}` |
+| `check` | HTTP | app | `{app, key, machineCode}` | `{token}` or `{error}` |
+| `deactivate` | callable | portal (auth) | `{key}` | `{ok}` or `{error}` |
+| `admin_create` | callable | portal (admin) | `{ownerEmail, productId, type, tier?, expires?, ownerName?}` | `{key}` |
+| `admin_update` | callable | portal (admin) | `{key, status?/expires?/machineCode?/…}` | `{ok}` |
+
+`activate`/`check` reject a key whose `productId` doesn't match the requesting
+`app` (reported as `invalid`, so it doesn't leak product membership).
 
 `error` values: `invalid`, `disabled`, `expired`, `wrong_machine`,
 `forbidden`, `missing_fields`. The app treats `disabled`/`expired`/
@@ -104,16 +112,19 @@ initialize_app()
 auth.set_custom_user_claims(auth.get_user_by_email("you@you.com").uid, {"admin": True})
 ```
 
-## The portal (`hosting/`)
+## The portal (`hosting/`) — "Simple Computers 101 License Portal"
 
-A plain HTML/JS page (no build step) served by Firebase Hosting:
+A plain HTML/JS page (no build step) served by Firebase Hosting. It manages
+licenses across **all** the apps you sell (each license has a `productId`);
+X32 SonicSniper is the first.
 
 - **Customers** sign in (email/password, verified), see every license issued
-  to their email, copy a key, and press **"Move to a new PC"** to release the
-  machine binding themselves (calls `deactivate`).
-- **Admins** (custom claim `admin: true`) get an extra panel: create a
-  license (monthly/lifetime, attached to a customer email), disable/enable,
-  wipe a machine binding, and set expiry.
+  to their email (labeled by product), copy a key, and press **"Move to a new
+  PC"** to release the machine binding themselves (calls `deactivate`).
+- **Admins** (custom claim `admin: true`) get an extra panel: pick a
+  **product**, create a license (monthly/lifetime) attached to a customer
+  email, disable/enable, wipe a machine binding, and set expiry. Add new apps
+  by adding an `<option>` to the Product dropdown in `hosting/index.html`.
 
 `hosting/firebase-config.js` holds the (public, non-secret) web config you
 paste from the Firebase console. To make yourself admin once:
