@@ -54,7 +54,7 @@ def _get_license(key: str) -> dict | None:
 # -- app-facing: activate / check -------------------------------------------
 
 
-@https_fn.on_call()
+@https_fn.on_call(secrets=["LICENSE_PRIVATE_KEY"])
 def activate(req: https_fn.CallableRequest) -> dict:
     key = (req.data or {}).get("key", "").strip()
     machine = (req.data or {}).get("machineCode", "").strip()
@@ -70,7 +70,7 @@ def activate(req: https_fn.CallableRequest) -> dict:
     return {"token": core.sign_online_token(payload, _private_key_hex())}
 
 
-@https_fn.on_call()
+@https_fn.on_call(secrets=["LICENSE_PRIVATE_KEY"])
 def check(req: https_fn.CallableRequest) -> dict:
     key = (req.data or {}).get("key", "").strip()
     machine = (req.data or {}).get("machineCode", "").strip()
