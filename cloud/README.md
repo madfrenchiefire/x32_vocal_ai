@@ -89,27 +89,38 @@ the **Blaze** (pay-as-you-go) plan on the project — Cloud Functions require it
 (usage is within the free allowances at low volume, but a card must be on
 file).
 
+**One-time setup:**
+
 ```bash
 cd cloud
 firebase login
-firebase use --add            # select your Firebase project (writes .firebaserc)
+firebase use --add        # select your Firebase project (writes .firebaserc)
 # fill hosting/firebase-config.js with your web app config (Project settings > Web app)
-# generate the SAME keypair the app embeds, and load the private half as a secret:
-python -m app.tools.license_gen init          # embeds public key in the app (run from repo root)
-firebase functions:secrets:set LICENSE_PRIVATE_KEY   # paste secrets/license_private_key.hex
-firebase deploy --only firestore:rules,functions,hosting
+python -m app.tools.license_gen init    # from the repo root: keypair + embed public key
 ```
 
-`firebase.json` here already wires Firestore rules, the Python Functions
-(`functions/`), and the Hosting site (`hosting/`) together — no `firebase init`
-needed, just `firebase use --add` to point it at your project.
+**Deploy — one command** (`deploy.sh` on macOS/Linux/Git-Bash, `deploy.bat` on
+Windows cmd). It preflight-checks the above, then ships rules + functions +
+hosting, and prints the first-time secret/webhook/admin steps:
 
-Make yourself admin (one-time), using the Admin SDK or a small script:
+```bash
+./deploy.sh          # or:  deploy.bat
+```
 
-```python
-from firebase_admin import auth, initialize_app
-initialize_app()
-auth.set_custom_user_claims(auth.get_user_by_email("you@you.com").uid, {"admin": True})
+`firebase.json` already wires Firestore rules, the Python Functions
+(`functions/`), and Hosting together — no `firebase init` needed.
+
+**Secrets** (once; functions won't run until these exist), then re-deploy:
+
+```bash
+firebase functions:secrets:set LICENSE_PRIVATE_KEY --data-file ../secrets/license_private_key.hex
+# selling via Stripe? also STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET
+```
+
+**Make yourself admin** (after signing up in the portal):
+
+```bash
+python set_admin.py you@example.com
 ```
 
 ## The portal (`hosting/`) — "Simple Computers 101 License Portal"
