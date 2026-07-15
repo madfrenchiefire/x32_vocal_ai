@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>X32 Vocal AI — Licenses</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #14171c; color: #e6e8eb; line-height: 1.45;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.9rem 1.4rem; background: #1b1f26; border-bottom: 1px solid #2a2f38;
+    }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    main { max-width: 60rem; margin: 1.5rem auto; padding: 0 1.2rem; }
+    .card {
+      background: #1b1f26; border: 1px solid #2a2f38; border-radius: 10px;
+      padding: 1.2rem; margin-bottom: 1.2rem;
+    }
+    h2 { font-size: 1rem; margin: 0 0 0.8rem; }
+    label { display: block; font-size: 0.85rem; opacity: 0.85; margin: 0.5rem 0 0.2rem; }
+    input, select {
+      width: 100%; padding: 0.5rem 0.6rem; background: #0f1216; color: #e6e8eb;
+      border: 1px solid #2a2f38; border-radius: 6px; font: inherit;
+    }
+    button {
+      padding: 0.5rem 0.9rem; border-radius: 6px; border: 1px solid #2a2f38;
+      background: #2b6cb0; color: #fff; font: inherit; cursor: pointer;
+    }
+    button.secondary { background: #2a2f38; }
+    button.danger { background: #9b2c2c; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: end; }
+    .row > div { flex: 1; min-width: 8rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid #2a2f38; vertical-align: top; }
+    code { background: #0f1216; padding: 0.1rem 0.35rem; border-radius: 4px; user-select: all; }
+    .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; }
+    .pill.active { background: #22543d; color: #9ae6b4; }
+    .pill.disabled { background: #742a2a; color: #feb2b2; }
+    .muted { opacity: 0.65; }
+    .status { margin-top: 0.6rem; font-size: 0.9rem; min-height: 1.2rem; }
+    .status.error { color: #feb2b2; }
+    .status.success { color: #9ae6b4; }
+    .hidden { display: none; }
+    .actions button { font-size: 0.8rem; padding: 0.3rem 0.55rem; margin: 0.1rem 0.1rem 0 0; }
+    a { color: #63b3ed; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>X32 Vocal AI — License Portal</h1>
+    <div>
+      <span id="who" class="muted"></span>
+      <button id="signout" class="secondary hidden">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Auth -->
+    <section class="card" id="auth-card">
+      <h2 id="auth-title">Sign in</h2>
+      <label for="email">Email</label>
+      <input type="email" id="email" autocomplete="email">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password">
+      <div class="row" style="margin-top: 0.9rem;">
+        <button id="signin-btn">Sign in</button>
+        <button id="signup-btn" class="secondary">Create account</button>
+        <button id="reset-btn" class="secondary">Forgot password</button>
+      </div>
+      <p class="status" id="auth-status"></p>
+      <p class="muted" style="font-size: 0.85rem;">
+        Use the email your license was issued to. New here? Create an account with
+        that same email and verify it to see your licenses.
+      </p>
+    </section>
+
+    <!-- Verify email -->
+    <section class="card hidden" id="verify-card">
+      <h2>Verify your email</h2>
+      <p>We sent a verification link to <b id="verify-email"></b>. Click it, then reload this page.</p>
+      <div class="row">
+        <button id="resend-btn" class="secondary">Resend email</button>
+        <button id="reload-btn">I've verified — reload</button>
+      </div>
+      <p class="status" id="verify-status"></p>
+    </section>
+
+    <!-- Customer licenses -->
+    <section class="card hidden" id="licenses-card">
+      <h2>My licenses</h2>
+      <div id="licenses-empty" class="muted hidden">No licenses on this account yet.</div>
+      <table id="licenses-table" class="hidden">
+        <thead><tr><th>Key</th><th>Type</th><th>Status</th><th>Expires</th><th>This PC</th><th></th></tr></thead>
+        <tbody id="licenses-body"></tbody>
+      </table>
+      <p class="status" id="licenses-status"></p>
+    </section>
+
+    <!-- Admin -->
+    <section class="card hidden" id="admin-card">
+      <h2>Admin — create license</h2>
+      <div class="row">
+        <div><label>Customer email</label><input type="email" id="a-email"></div>
+        <div><label>Name</label><input type="text" id="a-name"></div>
+        <div>
+          <label>Type</label>
+          <select id="a-type"><option value="lifetime">Lifetime</option><option value="monthly">Monthly</option></select>
+        </div>
+        <div><label>Expires (YYYY-MM-DD, monthly)</label><input type="text" id="a-expires" placeholder="blank = never"></div>
+        <div style="flex: 0;"><label>&nbsp;</label><button id="a-create-btn">Create</button></div>
+      </div>
+      <p class="status" id="admin-status"></p>
+
+      <h2 style="margin-top: 1.4rem;">All licenses</h2>
+      <div class="row" style="margin-bottom: 0.6rem;">
+        <div><input type="text" id="a-search" placeholder="filter by email / key…"></div>
+        <div style="flex:0;"><button id="a-refresh-btn" class="secondary">Refresh</button></div>
+      </div>
+      <table id="admin-table">
+        <thead><tr><th>Key</th><th>Owner</th><th>Type</th><th>Status</th><th>Expires</th><th>Machine</th><th></th></tr></thead>
+        <tbody id="admin-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script type="module" src="portal.js"></script>
+</body>
+</html>

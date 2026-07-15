@@ -82,13 +82,19 @@ the **Blaze** (pay-as-you-go) plan on the project — Cloud Functions require it
 file).
 
 ```bash
+cd cloud
 firebase login
-firebase init            # pick Firestore, Functions (Python), Hosting; use this dir
+firebase use --add            # select your Firebase project (writes .firebaserc)
+# fill hosting/firebase-config.js with your web app config (Project settings > Web app)
 # generate the SAME keypair the app embeds, and load the private half as a secret:
-python -m app.tools.license_gen init          # embeds public key in the app
+python -m app.tools.license_gen init          # embeds public key in the app (run from repo root)
 firebase functions:secrets:set LICENSE_PRIVATE_KEY   # paste secrets/license_private_key.hex
-firebase deploy --only firestore:rules,functions
+firebase deploy --only firestore:rules,functions,hosting
 ```
+
+`firebase.json` here already wires Firestore rules, the Python Functions
+(`functions/`), and the Hosting site (`hosting/`) together — no `firebase init`
+needed, just `firebase use --add` to point it at your project.
 
 Make yourself admin (one-time), using the Admin SDK or a small script:
 
@@ -97,6 +103,28 @@ from firebase_admin import auth, initialize_app
 initialize_app()
 auth.set_custom_user_claims(auth.get_user_by_email("you@you.com").uid, {"admin": True})
 ```
+
+## The portal (`hosting/`)
+
+A plain HTML/JS page (no build step) served by Firebase Hosting:
+
+- **Customers** sign in (email/password, verified), see every license issued
+  to their email, copy a key, and press **"Move to a new PC"** to release the
+  machine binding themselves (calls `deactivate`).
+- **Admins** (custom claim `admin: true`) get an extra panel: create a
+  license (monthly/lifetime, attached to a customer email), disable/enable,
+  wipe a machine binding, and set expiry.
+
+`hosting/firebase-config.js` holds the (public, non-secret) web config you
+paste from the Firebase console. To make yourself admin once:
+
+```python
+from firebase_admin import auth, initialize_app
+initialize_app()
+auth.set_custom_user_claims(auth.get_user_by_email("you@you.com").uid, {"admin": True})
+```
+
+(Sign out/in afterward so the new claim is in your token.)
 
 ## What the app will do (stage 3)
 
