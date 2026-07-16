@@ -1,29 +1,22 @@
-// Firebase web config for the license portal.
-//
-// Fill these in from: Firebase console -> Project settings -> "Your apps" ->
-// Web app -> SDK setup and configuration -> "Config".
-//
-// These values are NOT secrets. Web API keys are meant to be public; the
-// portal is kept safe by Firebase Auth + the Firestore security rules
-// (cloud/firestore.rules), not by hiding this config.
+// Firebase web config for the license portal (public values -- safe to ship).
 export const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "REPLACE_ME.firebaseapp.com",
-  projectId: "REPLACE_ME",
-  storageBucket: "REPLACE_ME.appspot.com",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME",
+  apiKey: "AIzaSyBl•••••••••••••••••••••••••••••••",
+  authDomain: "x32-sonicsniper.firebaseapp.com",
+  projectId: "x32-sonicsniper",
+  storageBucket: "x32-sonicsniper.firebasestorage.app",
+  messagingSenderId: "532383339989",
+  appId: "1:532383339989:web:8edd1c47a4432190f6995c",
+  measurementId: "G-BEG0SQ4BJF",
 };
 
-// Region the Cloud Functions are deployed to (see cloud/functions/main.py).
+// Region the Cloud Functions are deployed to.
 export const functionsRegion = "us-central1";
 
-// Base URL for the HTTP functions (create_checkout_session lives here). After
-// `firebase deploy`, the CLI prints each HTTP function's URL; use the common
-// prefix, e.g. "https://us-central1-<project>.cloudfunctions.net".
-export const functionsBaseUrl = "https://us-central1-REPLACE_ME.cloudfunctions.net";
+// Base URL for the HTTP functions (create_checkout_session lives here).
+export const functionsBaseUrl = "https://us-central1-x32-sonicsniper.cloudfunctions.net";
 
-// Products shown in the storefront. Add an entry per app you sell.
+// Products shown in the storefront. Prices are display-only labels; the real
+// charge comes from the Stripe price ids in cloud/functions/pricing.py.
 export const storeProducts = [
   {
     productId: "x32-sonicsniper",
