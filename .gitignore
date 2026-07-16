@@ -26,3 +26,4 @@ secrets/
 build/
 dist/
 *.spec.bak
+cloud/x32-sonicsniper-firebase-adminsdk-fbsvc-86db81bef3.json

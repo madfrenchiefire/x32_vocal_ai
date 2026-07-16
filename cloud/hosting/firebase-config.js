@@ -1,6 +1,6 @@
 // Firebase web config for the license portal (public values -- safe to ship).
 export const firebaseConfig = {
-  apiKey: "AIzaSyBl•••••••••••••••••••••••••••••••",
+  apiKey: "AIzaSyBlVkehiAvvpuCTEGZN1drmXva7uuUKRcM",
   authDomain: "x32-sonicsniper.firebaseapp.com",
   projectId: "x32-sonicsniper",
   storageBucket: "x32-sonicsniper.firebasestorage.app",
