@@ -110,6 +110,12 @@ onAuthStateChanged(auth, async (user) => {
   }
   show("verify-card", false); show("licenses-card", true);
 
+  // The ID token minted at sign-in can still carry email_verified:false for a
+  // moment after the user clicks the verification link; Firestore's rules read
+  // that claim, so force a fresh token before reading to avoid a spurious
+  // "insufficient permissions" on first login. (loadLicenses also retries once
+  // with a forced refresh as a belt-and-braces safety net.)
+  try { await user.getIdToken(true); } catch (_) { /* offline: fall through */ }
   await loadLicenses(user);
   const token = await user.getIdTokenResult();
   if (token.claims.admin === true) { show("admin-card", true); await loadAllLicenses(); }
@@ -143,11 +149,17 @@ $("resend-btn").addEventListener("click", async () => {
   try { await sendEmailVerification(auth.currentUser); setStatus("verify-status", "Sent.", "success"); }
   catch (e) { setStatus("verify-status", e.message, "error"); }
 });
-$("reload-btn").addEventListener("click", () => location.reload());
+$("reload-btn").addEventListener("click", async () => {
+  // Pull the latest account state (in case the user verified in another tab)
+  // and a fresh token before re-rendering, so the verified state is current.
+  const u = auth.currentUser;
+  if (u) { try { await u.reload(); await u.getIdToken(true); } catch (_) { /* ignore */ } }
+  location.reload();
+});
 
 // -- customer: my licenses ----------------------------------------------------
 
-async function loadLicenses(user) {
+async function loadLicenses(user, retried = false) {
   setStatus("licenses-status", "Loading…");
   const body = $("licenses-body");
   body.innerHTML = "";
@@ -159,6 +171,13 @@ async function loadLicenses(user) {
     snap.forEach((doc) => body.appendChild(customerRow(doc.data())));
     setStatus("licenses-status", "");
   } catch (e) {
+    // A just-verified account can still be denied for one moment while the old
+    // token (email_verified:false) lingers. Force a fresh token and retry once
+    // before surfacing anything to the user.
+    if (!retried && user.emailVerified && /permission|insufficient/i.test(e.message)) {
+      try { await user.getIdToken(true); } catch (_) { /* ignore */ }
+      return loadLicenses(user, true);
+    }
     setStatus("licenses-status", "Could not load licenses: " + e.message, "error");
   }
 }
