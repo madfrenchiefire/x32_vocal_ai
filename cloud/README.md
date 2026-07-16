@@ -17,8 +17,11 @@ re-check) and the Hosting portal are the next stages.
   and only hard-locks on an explicit `disabled`/`expired`/`wrong_machine`.
 - Two license **types**: `monthly` (has `expires`, extended by billing) and
   `lifetime` (`expires: null`, killable only via `status`).
-- Customers **self-serve machine moves** ("move to a new PC" releases the
-  binding); you keep an admin override.
+- Customers **self-serve machine moves**: from the **portal** ("move to a new
+  PC", the auth'd `deactivate` callable) **or from inside the desktop app**
+  ("Deactivate this computer", the `release` HTTP endpoint — authenticated by
+  machine possession, since the app has no login). Either releases the binding
+  so the license can be activated elsewhere; you keep an admin override.
 
 ## Pieces
 
@@ -66,6 +69,7 @@ portal, which needs the auth context).
 |---|---|---|---|---|
 | `activate` | HTTP | app | `{app, key, machineCode}` | `{token}` or `{error}` |
 | `check` | HTTP | app | `{app, key, machineCode}` | `{token}` or `{error}` |
+| `release` | HTTP | app | `{app, key, machineCode}` | `{ok}` or `{error}` |
 | `deactivate` | callable | portal (auth) | `{key}` | `{ok}` or `{error}` |
 | `admin_create` | callable | portal (admin) | `{ownerEmail, productId, type, tier?, expires?, ownerName?}` | `{key}` |
 | `admin_update` | callable | portal (admin) | `{key, status?/expires?/machineCode?/…}` | `{ok}` |

@@ -113,6 +113,52 @@ def test_admin_can_deactivate_any():
     assert core.decide_deactivation(_license(), "admin@x.com", True)[0] == "ok"
 
 
+# -- app-side self-release (decide_release) ---------------------------------
+
+
+def test_release_by_bound_machine_clears_binding():
+    now = datetime.now(timezone.utc)
+    result, updates = core.decide_release(_license(machineCode="pc-1", rebindCount=2), "pc-1", now)
+    assert result == "ok"
+    assert updates["machineCode"] is None
+    assert updates["machineBoundAt"] is None
+    assert updates["rebindCount"] == 3
+
+
+def test_release_normalizes_machine_code():
+    now = datetime.now(timezone.utc)
+    # Bound with dashes/case; releasing PC presents a differently-formatted code.
+    result, _ = core.decide_release(_license(machineCode="AB-cd-12"), "abcd12", now)
+    assert result == "ok"
+
+
+def test_release_from_other_machine_rejected():
+    now = datetime.now(timezone.utc)
+    assert core.decide_release(_license(machineCode="pc-1"), "pc-2", now)[0] == "wrong_machine"
+
+
+def test_release_unbound_is_ok_and_noop():
+    now = datetime.now(timezone.utc)
+    result, updates = core.decide_release(_license(machineCode=None), "pc-1", now)
+    assert result == "ok"
+    assert updates is None
+
+
+def test_release_invalid_missing_license():
+    now = datetime.now(timezone.utc)
+    assert core.decide_release(None, "pc-1", now)[0] == "invalid"
+
+
+def test_release_ignores_status_and_expiry():
+    # A disabled or lapsed license must still be releasable so it can be moved.
+    now = datetime.now(timezone.utc)
+    disabled = _license(machineCode="pc-1", status="disabled")
+    assert core.decide_release(disabled, "pc-1", now)[0] == "ok"
+    expired = _license(machineCode="pc-1", type="monthly",
+                       expires=(now - timedelta(days=1)).isoformat())
+    assert core.decide_release(expired, "pc-1", now)[0] == "ok"
+
+
 # -- token compatibility with the app's verifier ----------------------------
 
 

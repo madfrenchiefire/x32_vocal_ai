@@ -238,6 +238,12 @@
         <button class="btn btn-primary" id="license-activate-btn">Activate</button>
         <button class="btn btn-secondary" id="license-close-btn">Close</button>
       </div>
+      <div id="license-deactivate-wrap" style="display:none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.12);">
+        <p id="license-deactivate-help" class="muted" style="margin: 0 0 0.4rem;">
+          Moving to another computer? Deactivate here to release this license so you can activate it on the new machine.
+        </p>
+        <button class="btn btn-danger" id="license-deactivate-btn">Deactivate this computer</button>
+      </div>
       <p id="license-status-line" class="status" style="margin-top: 0.5rem;"></p>
     </section>
   </div>
@@ -1325,6 +1331,15 @@
       // Block the app when it isn't functional (trial ended / wrong machine).
       showLicenseOverlay(!s.functional);
       el("license-close-btn").style.display = s.functional ? "" : "none";
+      // Offer "deactivate / move to another PC" only when a real key is
+      // active on this machine (nothing to release during a trial).
+      const canDeactivate = s.state === "licensed";
+      el("license-deactivate-wrap").style.display = canDeactivate ? "" : "none";
+      el("license-deactivate-help").textContent = s.online
+        ? "Moving to another computer? Deactivate here to release this license on the server so you can activate it on the new machine."
+        : "Deactivate to remove this license key from this computer.";
+      // Online mode takes the short XVAI-… key; offline takes a full token.
+      el("license-key-input").placeholder = s.online ? "XVAI-XXXX-XXXX-XXXX" : "X32SNIPER1.…";
     }
 
     async function loadLicense() {
@@ -1347,6 +1362,21 @@
         if (s.functional) setTimeout(() => location.reload(), 900);
       } catch (err) {
         setStatus("license-status-line", `Activation failed: ${err}`, "error");
+      }
+    });
+
+    el("license-deactivate-btn").addEventListener("click", async () => {
+      if (!confirm("Deactivate this license on this computer?\n\nThis releases it so you can activate it on another machine. The app will drop back to trial/unlicensed here until a key is entered again.")) return;
+      const btn = el("license-deactivate-btn");
+      btn.disabled = true;
+      try {
+        const s = await api("/api/license/deactivate", { method: "POST" });
+        setStatus("license-status-line", "Deactivated. You can now activate this license on another computer.", "success");
+        applyLicenseStatus(s);
+      } catch (err) {
+        setStatus("license-status-line", `Deactivation failed: ${err}`, "error");
+      } finally {
+        btn.disabled = false;
       }
     });
 

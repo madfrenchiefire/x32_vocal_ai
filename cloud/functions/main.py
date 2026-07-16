@@ -9,6 +9,7 @@ Manager (LICENSE_PRIVATE_KEY), never in this source or the shipped app.
 
 Endpoints:
     activate / check                HTTP   (app)      -> {token} | {error}
+    release                         HTTP   (app)      -> {ok} | {error}
     deactivate                      callable (portal, auth)
     admin_create / admin_update     callable (portal, admin)
     create_checkout_session         HTTP   (storefront) -> {url}
@@ -91,6 +92,31 @@ def activate(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(secrets=["LICENSE_PRIVATE_KEY"])
 def check(req: https_fn.Request) -> https_fn.Response:
     return _app_endpoint(req, core.decide_check)
+
+
+@https_fn.on_request()
+def release(req: https_fn.Request) -> https_fn.Response:
+    """App-side self-release of the machine binding ("deactivate / move to
+    another computer"). Authenticated by machine possession -- only the PC
+    currently holding the lock can release it. Returns {"ok": true} on
+    success (no signed token, so no signing secret needed)."""
+    if req.method != "POST":
+        return _json({"error": "method_not_allowed"}, 405)
+    data = req.get_json(silent=True) or {}
+    key = str(data.get("key", "")).strip()
+    machine = str(data.get("machineCode", "")).strip()
+    app_id = str(data.get("app", "")).strip()
+    if not key or not machine or not app_id:
+        return _json({"error": "missing_fields"}, 400)
+    license = _get_license(key)
+    if not core.product_matches(license, app_id):
+        return _json({"error": "invalid"}, 200)
+    result, updates = core.decide_release(license, machine, _now())
+    if result != "ok":
+        return _json({"error": result}, 200)
+    if updates:
+        _db().collection(LICENSES).document(key).update(updates)
+    return _json({"ok": True})
 
 
 # -- portal: self-service deactivate ----------------------------------------

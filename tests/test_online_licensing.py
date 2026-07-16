@@ -44,6 +44,13 @@ class FakeServer:
         lic = self.db.get(key)
         if not core.product_matches(lic, app_id):
             return {"error": "invalid"}
+        if endpoint == "release":
+            result, updates = core.decide_release(lic, machine, self.now)
+            if result != "ok":
+                return {"error": result}
+            if updates:
+                self.db[key].update(updates)
+            return {"ok": True}
         decide = core.decide_activation if endpoint == "activate" else core.decide_check
         result, updates = decide(lic, machine, self.now)
         if result != "ok":
@@ -185,3 +192,70 @@ def test_refresher_locks_on_authoritative_rejection(tmp_path):
     refresher = LicenseRefresher(client, diag)
     refresher.refresh_now()
     assert store.load_token() is None
+
+
+def test_deactivate_releases_binding_and_clears_token(tmp_path):
+    priv, pub = app_keys.generate_keypair()
+    server = FakeServer(priv, [_license()])
+    client, store, _ = _client(tmp_path, server, pub)
+    client.activate("XVAI-AAAA-BBBB-CCCC")
+    assert server.db["XVAI-AAAA-BBBB-CCCC"]["machineCode"] == client._machine_code
+    assert store.load_token() is not None
+
+    client.deactivate()
+
+    # Server binding released (machine cleared, rebind counted) and the local
+    # token dropped -- the license can now be activated elsewhere.
+    assert server.db["XVAI-AAAA-BBBB-CCCC"]["machineCode"] is None
+    assert server.db["XVAI-AAAA-BBBB-CCCC"]["rebindCount"] == 1
+    assert store.load_token() is None
+
+
+def test_deactivated_license_reactivates_on_another_machine(tmp_path):
+    priv, pub = app_keys.generate_keypair()
+    server = FakeServer(priv, [_license()])
+    client_a, store_a, _ = _client(tmp_path / "a", server, pub)
+    client_a.activate("XVAI-AAAA-BBBB-CCCC")
+    client_a.deactivate()
+
+    # A different machine can now claim it (would have been wrong_machine before).
+    config_b = AppConfig(license_mode="online", license_server_url="https://x/", product_id=PRODUCT)
+    store_b = LicenseStore(tmp_path / "b" / "lic")
+    from app.diagnostics.logger import DiagnosticsLogger
+    diag = DiagnosticsLogger(log_dir=tmp_path / "b" / "logs", ring_buffer_size=100, state_provider=lambda: {})
+    client_b = OnlineLicenseClient(config_b, store_b, diag, pub, transport=server.transport, fingerprint="pc-2")
+    client_b.activate("XVAI-AAAA-BBBB-CCCC")
+    assert server.db["XVAI-AAAA-BBBB-CCCC"]["machineCode"] == client_b._machine_code
+    assert store_b.load_token() is not None
+
+
+def test_deactivate_network_failure_keeps_local_token(tmp_path):
+    priv, pub = app_keys.generate_keypair()
+    server = FakeServer(priv, [_license()])
+    client, store, _ = _client(tmp_path, server, pub)
+    client.activate("XVAI-AAAA-BBBB-CCCC")
+
+    server.unreachable = True
+    with pytest.raises(OnlineUnreachable):
+        client.deactivate()
+    # Couldn't reach the server to release -- must NOT clear locally (else the
+    # binding is stranded and the license can't be moved).
+    assert store.load_token() is not None
+    assert server.db["XVAI-AAAA-BBBB-CCCC"]["machineCode"] == client._machine_code
+
+
+def test_deactivate_wrong_machine_raises_and_keeps_token(tmp_path):
+    priv, pub = app_keys.generate_keypair()
+    # License bound to a DIFFERENT machine than this client (pc-1).
+    server = FakeServer(priv, [_license(machineCode="pc-other")])
+    client, store, _ = _client(tmp_path, server, pub)
+    # Hand-place a token so deactivate has a key to release.
+    payload = core.build_online_payload(server.db["XVAI-AAAA-BBBB-CCCC"], "pc-1", server.now)
+    store.save_token(core.sign_online_token(payload, priv))
+
+    from app.licensing.keys import LicenseError
+    with pytest.raises(LicenseError):
+        client.deactivate()
+    # A machine that doesn't hold the lock can't release it, and its token stays.
+    assert store.load_token() is not None
+    assert server.db["XVAI-AAAA-BBBB-CCCC"]["machineCode"] == "pc-other"

@@ -93,6 +93,43 @@ class OnlineLicenseClient:
         self._store_token_or_raise(resp)
         self.diagnostics.log_user_action("license_online_activated", {"key_prefix": key[:8]})
 
+    def deactivate(self) -> None:
+        """Release this machine's server-side binding AND clear the local
+        token, so the license can be activated on another computer ("move to
+        a new PC" from inside the app). Authenticated by machine possession
+        (the /release endpoint only lets the currently-bound PC release
+        itself).
+
+        Order matters: release on the server FIRST, then drop the local token
+        only if that succeeded. A network failure raises OnlineUnreachable and
+        leaves the local token in place -- clearing locally while the server
+        still holds the binding would strand the license (the new machine
+        would be refused as wrong_machine, forcing a portal release)."""
+        token = self.store.load_token()
+        key = None
+        if token:
+            try:
+                key = verify_token(token, self.public_key_hex).id
+            except LicenseError:
+                key = None
+        if not key:
+            # Nothing verifiable to release server-side -- just clear whatever
+            # (junk/expired) token is cached locally.
+            self.store.clear_token()
+            return
+        resp = self.transport(self._url("release"), {
+            "app": self.config.product_id, "key": key, "machineCode": self._machine_code,
+        })
+        error = resp.get("error")
+        if error and error != "invalid":
+            # An authoritative rejection other than "unknown key" (e.g. the
+            # binding is held by a different machine) -- surface it; don't
+            # pretend we released. "invalid"/absent-key we treat as already
+            # gone and fall through to clear the local token.
+            raise LicenseError(_message_for(error, self._machine_code))
+        self.store.clear_token()
+        self.diagnostics.log_user_action("license_online_deactivated", {"key_prefix": key[:8]})
+
     def refresh(self) -> bool:
         """Re-check the stored license with the server and refresh its token.
         Returns True if refreshed, False if there's nothing to refresh.

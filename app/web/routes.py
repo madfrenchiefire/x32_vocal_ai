@@ -72,8 +72,12 @@ def license_status():
         # No licensing in this build/run -- report "functional" so the UI
         # doesn't nag (dev/test mode).
         return jsonify(state="disabled", functional=True, message="Licensing not active in this run.",
-                       machine_code="", licensee=None, tier=None, expires=None, trial_days_remaining=None)
-    return jsonify(**manager.status().to_dict())
+                       machine_code="", licensee=None, tier=None, expires=None, trial_days_remaining=None,
+                       online=False)
+    # `online` tells the UI whether "deactivate" also releases the machine
+    # binding on the server (online mode) or just forgets the local key.
+    online = current_app.extensions.get("license_online_client") is not None
+    return jsonify(**manager.status().to_dict(), online=online)
 
 
 @bp.route("/api/license/activate", methods=["POST"])
@@ -113,10 +117,28 @@ def license_activate():
 def license_deactivate():
     manager = current_app.extensions.get("license_manager")
     diagnostics = current_app.extensions["diagnostics"]
+    online_client = current_app.extensions.get("license_online_client")
     if manager is None:
         return jsonify(error="licensing is not active in this run"), 400
     diagnostics.log_user_action("license_deactivate")
-    manager.deactivate()
+    from app.licensing.keys import LicenseError
+
+    if online_client is not None:
+        # Online mode: release the machine binding on the server (so the
+        # license can move to another PC) and clear the local token. A network
+        # failure keeps the local token -- releasing only locally would strand
+        # the binding server-side.
+        from app.licensing.online import OnlineUnreachable
+
+        try:
+            online_client.deactivate()
+        except OnlineUnreachable as exc:
+            return jsonify(error=f"Could not reach the license server to release this machine: {exc}"), 503
+        except LicenseError as exc:
+            return jsonify(error=str(exc)), 400
+    else:
+        # Offline mode: just forget the locally stored key.
+        manager.deactivate()
     return jsonify(**manager.status().to_dict())
 
 

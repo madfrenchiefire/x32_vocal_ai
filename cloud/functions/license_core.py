@@ -143,6 +143,29 @@ def decide_check(license: dict | None, machine_code: str, now: datetime) -> tupl
     return "ok", {"lastCheckAt": now}
 
 
+def decide_release(license: dict | None, machine_code: str, now: datetime) -> tuple[str, dict | None]:
+    """App-side self-release of the machine binding (in-app "deactivate /
+    move to another computer"). Unlike decide_deactivation, this is NOT
+    authenticated by owner login -- the desktop app has none. It's
+    authenticated by *machine possession*: only the PC that currently holds
+    the binding may release it. Status/expiry are intentionally NOT checked
+    (a disabled or lapsed license must still be releasable so it can be moved).
+    Idempotent: an already-unbound license returns ok with no update."""
+    if license is None:
+        return "invalid", None
+    bound = license.get("machineCode")
+    if not bound:
+        return "ok", None  # already free -- nothing to release
+    if _normalize_machine(bound) != _normalize_machine(machine_code):
+        return "wrong_machine", None
+    return "ok", {
+        "machineCode": None,
+        "machineBoundAt": None,
+        "rebindCount": int(license.get("rebindCount", 0)) + 1,
+        "lastCheckAt": now,
+    }
+
+
 def decide_deactivation(license: dict | None, requester_email: str, is_admin: bool) -> tuple[str, dict | None]:
     """Release the machine binding (self-service 'move to a new PC', or admin
     wipe). Requester must own the license or be admin."""

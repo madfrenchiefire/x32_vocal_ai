@@ -514,9 +514,13 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
     trial ends) can always take a key via `POST /api/license/activate`.
   - **Online mode** (`AppConfig.license_mode = "online"` + `license_server_url`,
     `app/licensing/online.py`, backend in `cloud/`): server-authoritative,
-    node-locked, per-product. The app POSTs `{app, key, machineCode}` to the
-    `activate`/`check` Cloud Functions (plain HTTP — no Firebase SDK in the
-    app); the server binds the machine, checks status/expiry, and returns a
+    node-locked, per-product. **This is now the shipped default** — the config
+    defaults *and* `config.json` point `license_mode`/`license_server_url` at
+    the deployed Cloud Functions (`https://us-central1-x32-sonicsniper.
+    cloudfunctions.net`); set `license_mode: "offline"` in config.json to fall
+    back to pasted vendor-signed keys. The app POSTs `{app, key, machineCode}`
+    to the `activate`/`check` Cloud Functions (plain HTTP — no Firebase SDK in
+    the app); the server binds the machine, checks status/expiry, and returns a
     short-lived Ed25519 token (`recheck` horizon ~10 days) the app verifies
     with the **same** embedded public key. `LicenseRefresher` (background
     thread) re-checks weekly-ish (when within ~4 days of the horizon);
@@ -525,8 +529,17 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
     verdict clears it (adds the `recheck_required` status). Tokens carry an
     `app` (product id, `AppConfig.product_id`, default `x32-sonicsniper`);
     the app rejects a token for a different product, so one signing key
-    covers many apps. The web portal (`cloud/hosting/`, "Simple Computers
-    101 License Portal") manages licenses across all products.
+    covers many apps. **In-app machine release** (`OnlineLicenseClient.
+    deactivate` → `release` HTTP endpoint, "Deactivate this computer" on the
+    License screen): the desktop app can self-release its own binding so the
+    license moves to another PC, authenticated by *machine possession* (only
+    the currently-bound PC can release itself — no login, unlike the portal's
+    auth'd `deactivate`). Release contacts the server first and only then
+    clears the local token; a network failure raises and keeps the token so a
+    binding is never stranded (`decide_release` in `cloud/functions/
+    license_core.py`). The web portal (`cloud/hosting/`, "Simple Computers
+    101 License Portal") manages licenses across all products, and its own
+    "Move to a new PC" button is the auth'd equivalent.
   - **Honest scope**: no client-side scheme is uncrackable; signed +
     machine-locked keys deter casual sharing, not a determined cracker.
     Online mode adds real revocation + machine control on top.
