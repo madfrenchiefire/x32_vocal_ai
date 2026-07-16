@@ -6,7 +6,7 @@
     {
       "source": "functions",
       "codebase": "default",
-      "runtime": "python312",
+      "runtime": "python313",
       "ignore": ["venv", ".git", "__pycache__", "*.local"]
     }
   ],

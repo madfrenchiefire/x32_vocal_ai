@@ -12,4 +12,4 @@ Until then, the trial still works but no purchased key can be validated.
 """
 from __future__ import annotations
 
-PUBLIC_KEY_HEX = ""
+PUBLIC_KEY_HEX = "71fadb77946fba058bd4e1d85752e80ddeaa1a7a4b46594086d62a8406e8c271"
