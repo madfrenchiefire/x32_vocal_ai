@@ -31,5 +31,8 @@
   "log_dir": "logs",
   "snapshot_dir": "snapshots",
   "web_host": "127.0.0.1",
-  "web_port": 8080
+  "web_port": 8080,
+  "license_mode": "online",
+  "license_server_url": "https://us-central1-x32-sonicsniper.cloudfunctions.net",
+  "product_id": "x32-sonicsniper"
 }

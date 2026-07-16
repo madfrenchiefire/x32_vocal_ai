@@ -102,10 +102,11 @@ class AppConfig:
     # "online"  = activate against the license server (cloud/), which binds
     #   the machine and returns a short-lived signed token the app re-checks
     #   weekly (fail-safe: keeps running if the server is merely unreachable).
-    license_mode: str = "offline"
+    license_mode: str = "online"
     # Base URL of the deployed Cloud Functions (online mode), e.g.
-    # "https://us-central1-<project>.cloudfunctions.net". None until set.
-    license_server_url: str | None = None
+    # "https://us-central1-<project>.cloudfunctions.net". The app appends
+    # /activate and /check to this base.
+    license_server_url: str | None = "https://us-central1-x32-sonicsniper.cloudfunctions.net"
     # This app's product id -- the license server scopes keys per product,
     # and the app rejects a token issued for a different product.
     product_id: str = "x32-sonicsniper"
