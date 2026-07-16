@@ -26,4 +26,7 @@ secrets/
 build/
 dist/
 *.spec.bak
-cloud/x32-sonicsniper-firebase-adminsdk-fbsvc-86db81bef3.json
+# Firebase service-account (admin SDK) keys -- REAL secrets, never commit.
+# Glob catches any regenerated key regardless of its random suffix.
+*firebase-adminsdk*.json
+serviceAccountKey.json
