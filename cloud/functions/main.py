@@ -153,12 +153,13 @@ def admin_create(req: https_fn.CallableRequest) -> dict:
     lic_type = data.get("type", "lifetime")
     if not owner_email or lic_type not in ("monthly", "lifetime"):
         return {"error": "invalid_fields"}
-    key = data.get("key") or core.generate_key()
+    product_id = data.get("productId", "x32-sonicsniper")
+    key = data.get("key") or core.generate_key(core.key_prefix_for(product_id))
     doc = {
         "key": key,
         "ownerEmail": owner_email,
         "ownerName": data.get("ownerName", ""),
-        "productId": data.get("productId", "x32-sonicsniper"),
+        "productId": product_id,
         "type": lic_type,
         "tier": data.get("tier", "pro"),
         "status": "active",

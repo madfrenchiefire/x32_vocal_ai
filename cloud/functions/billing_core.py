@@ -44,7 +44,7 @@ def license_from_checkout(session: dict, now: datetime | None = None) -> dict | 
         expires = (now + timedelta(days=MONTHLY_PERIOD_DAYS)).isoformat()
 
     return {
-        "key": core.generate_key(),
+        "key": core.generate_key(core.key_prefix_for(product)),
         "ownerEmail": email,
         "ownerName": (session.get("customer_details") or {}).get("name", ""),
         "productId": product,

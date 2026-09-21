@@ -1338,8 +1338,8 @@
       el("license-deactivate-help").textContent = s.online
         ? "Moving to another computer? Deactivate here to release this license on the server so you can activate it on the new machine."
         : "Deactivate to remove this license key from this computer.";
-      // Online mode takes the short XVAI-… key; offline takes a full token.
-      el("license-key-input").placeholder = s.online ? "XVAI-XXXX-XXXX-XXXX" : "X32SNIPER1.…";
+      // Online mode takes the short product key; offline takes a full token.
+      el("license-key-input").placeholder = s.online ? "X32-XXXX-XXXX-XXXX" : "X32SNIPER1.…";
     }
 
     async function loadLicense() {

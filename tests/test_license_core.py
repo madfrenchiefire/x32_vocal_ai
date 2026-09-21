@@ -113,6 +113,37 @@ def test_admin_can_deactivate_any():
     assert core.decide_deactivation(_license(), "admin@x.com", True)[0] == "ok"
 
 
+# -- key generation / product-flavored prefixes -----------------------------
+
+
+def test_key_prefix_derived_from_product_id():
+    assert core.key_prefix_for("x32-sonicsniper") == "X32"
+    assert core.key_prefix_for("rt-racetiming") == "RT"
+    assert core.key_prefix_for("rt-timing-pro") == "RT"
+
+
+def test_key_prefix_fallback_for_odd_ids():
+    assert core.key_prefix_for("") == "LIC"
+    assert core.key_prefix_for("-weird") == "LIC"
+
+
+def test_key_prefix_override_wins():
+    core.KEY_PREFIX_OVERRIDES["custom-product"] = "ZZ"
+    try:
+        assert core.key_prefix_for("custom-product") == "ZZ"
+    finally:
+        del core.KEY_PREFIX_OVERRIDES["custom-product"]
+
+
+def test_generate_key_uses_prefix_and_shape():
+    key = core.generate_key(core.key_prefix_for("rt-racetiming"))
+    parts = key.split("-")
+    assert parts[0] == "RT"
+    assert len(parts) == 4 and all(len(p) == 4 for p in parts[1:])
+    # default prefix when none given
+    assert core.generate_key().startswith("LIC-")
+
+
 # -- app-side self-release (decide_release) ---------------------------------
 
 

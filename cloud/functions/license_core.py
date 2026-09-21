@@ -34,10 +34,31 @@ STATUS_ACTIVE = "active"
 _KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no ambiguous chars (0/O, 1/I/L)
 
 
-def generate_key() -> str:
-    """A human-ish license key: XVAI-XXXX-XXXX-XXXX."""
+DEFAULT_KEY_PREFIX = "LIC"
+
+# Optional per-product key-prefix overrides. By default the prefix is derived
+# from the product id (see key_prefix_for); add an entry here only to force a
+# prefix that the id's first segment wouldn't produce.
+KEY_PREFIX_OVERRIDES: dict[str, str] = {}
+
+
+def key_prefix_for(product_id: str) -> str:
+    """A short, product-flavored key prefix so a key hints at what it unlocks:
+    'x32-sonicsniper' -> 'X32', 'rt-racetiming' -> 'RT'. Derived from the
+    product id's first '-'-separated segment (letters/digits, uppercased);
+    an explicit KEY_PREFIX_OVERRIDES entry wins; falls back to 'LIC'."""
+    if product_id in KEY_PREFIX_OVERRIDES:
+        return KEY_PREFIX_OVERRIDES[product_id]
+    seg = (product_id or "").split("-", 1)[0]
+    seg = "".join(ch for ch in seg if ch.isalnum()).upper()
+    return seg or DEFAULT_KEY_PREFIX
+
+
+def generate_key(prefix: str = DEFAULT_KEY_PREFIX) -> str:
+    """A human-ish license key: <PREFIX>-XXXX-XXXX-XXXX (e.g. X32-7F3A-9K2M-QP4T).
+    Pass a product-flavored prefix from key_prefix_for(product_id)."""
     groups = ["".join(secrets.choice(_KEY_ALPHABET) for _ in range(4)) for _ in range(3)]
-    return "XVAI-" + "-".join(groups)
+    return f"{prefix}-" + "-".join(groups)
 
 
 def _b64encode(raw: bytes) -> str:
