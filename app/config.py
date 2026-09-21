@@ -106,7 +106,7 @@ class AppConfig:
     # Base URL of the deployed Cloud Functions (online mode), e.g.
     # "https://us-central1-<project>.cloudfunctions.net". The app appends
     # /activate and /check to this base.
-    license_server_url: str | None = "https://us-central1-x32-sonicsniper.cloudfunctions.net"
+    license_server_url: str | None = "https://us-central1-sc101-licensing.cloudfunctions.net"
     # This app's product id -- the license server scopes keys per product,
     # and the app rejects a token issued for a different product.
     product_id: str = "x32-sonicsniper"

@@ -516,7 +516,7 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
     `app/licensing/online.py`, backend in `cloud/`): server-authoritative,
     node-locked, per-product. **This is now the shipped default** — the config
     defaults *and* `config.json` point `license_mode`/`license_server_url` at
-    the deployed Cloud Functions (`https://us-central1-x32-sonicsniper.
+    the deployed Cloud Functions (`https://us-central1-sc101-licensing.
     cloudfunctions.net`); set `license_mode: "offline"` in config.json to fall
     back to pasted vendor-signed keys. The app POSTs `{app, key, machineCode}`
     to the `activate`/`check` Cloud Functions (plain HTTP — no Firebase SDK in
