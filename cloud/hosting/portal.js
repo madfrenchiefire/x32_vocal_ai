@@ -15,7 +15,8 @@ import {
   getFirestore, collection, query, where, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js";
-import { firebaseConfig, functionsRegion, functionsBaseUrl, storeProducts } from "./firebase-config.js";
+import { firebaseConfig, functionsRegion, functionsBaseUrl } from "./firebase-config.js";
+import { products } from "./products.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -47,7 +48,12 @@ function renderStore() {
   }
   const host = $("store-products");
   host.innerHTML = "";
-  (storeProducts || []).forEach((product) => {
+  // Only products with plans are sold online; the rest are issued by hand from
+  // the admin panel and don't appear on the storefront. Hide the whole Buy
+  // card when nothing is for sale online yet (e.g. before Stripe is wired).
+  const forSale = (products || []).filter((p) => (p.plans || []).length > 0);
+  show("store-card", forSale.length > 0);
+  forSale.forEach((product) => {
     const wrap = document.createElement("div");
     wrap.style.marginBottom = "0.8rem";
     const title = document.createElement("div");
@@ -91,6 +97,19 @@ async function buy(productId, plan, btn) {
 
 renderStore();
 
+// Fill the admin "Product" dropdown from the same catalog (all products, even
+// ones not sold online). Runs once, when the admin panel is first shown.
+function populateAdminProducts() {
+  const sel = $("a-product");
+  if (!sel || sel.options.length) return;
+  (products || []).forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.productId;
+    opt.textContent = p.name || p.productId;
+    sel.appendChild(opt);
+  });
+}
+
 // -- auth state ---------------------------------------------------------------
 
 onAuthStateChanged(auth, async (user) => {
@@ -118,7 +137,7 @@ onAuthStateChanged(auth, async (user) => {
   try { await user.getIdToken(true); } catch (_) { /* offline: fall through */ }
   await loadLicenses(user);
   const token = await user.getIdTokenResult();
-  if (token.claims.admin === true) { show("admin-card", true); await loadAllLicenses(); }
+  if (token.claims.admin === true) { populateAdminProducts(); show("admin-card", true); await loadAllLicenses(); }
 });
 
 // -- auth actions -------------------------------------------------------------

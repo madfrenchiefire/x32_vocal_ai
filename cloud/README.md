@@ -127,19 +127,27 @@ firebase functions:secrets:set LICENSE_PRIVATE_KEY --data-file ../secrets/licens
 python set_admin.py you@example.com
 ```
 
-## The portal (`hosting/`) — "Simple Computers 101 License Portal"
+## The portal (`hosting/`) — "Simple Computers 101 Licensing System"
 
-A plain HTML/JS page (no build step) served by Firebase Hosting. It manages
-licenses across **all** the apps you sell (each license has a `productId`);
-X32 SonicSniper is the first.
+A plain HTML/JS page (no build step) served by Firebase Hosting. It's
+**product-agnostic** — one licensing hub that hosts licenses across **all**
+the apps you sell (each license has a `productId`); X32 SonicSniper is the
+first product, not the portal's identity.
 
 - **Customers** sign in (email/password, verified), see every license issued
   to their email (labeled by product), copy a key, and press **"Move to a new
   PC"** to release the machine binding themselves (calls `deactivate`).
 - **Admins** (custom claim `admin: true`) get an extra panel: pick a
   **product**, create a license (monthly/lifetime) attached to a customer
-  email, disable/enable, wipe a machine binding, and set expiry. Add new apps
-  by adding an `<option>` to the Product dropdown in `hosting/index.html`.
+  email, disable/enable, wipe a machine binding, and set expiry.
+
+**Adding a product is a one-file edit:** register it in
+`hosting/products.js` (the product catalog) — `productId` (must match the
+app's `AppConfig.product_id`), `name`, `blurb`, and `plans` (only for products
+sold online via Stripe; omit/empty to issue keys by hand). Both the storefront
+and the admin "Product" dropdown read from that one list. The storefront's Buy
+card only shows for products that have `plans`; a product with none is
+still fully manageable from the admin panel.
 
 `hosting/firebase-config.js` holds the (public, non-secret) web config you
 paste from the Firebase console. To make yourself admin once:

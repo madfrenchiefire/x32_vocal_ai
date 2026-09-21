@@ -538,8 +538,10 @@ Web-based UI (Flask + WebSockets), consistent with the existing X32 Monitor Mana
     clears the local token; a network failure raises and keeps the token so a
     binding is never stranded (`decide_release` in `cloud/functions/
     license_core.py`). The web portal (`cloud/hosting/`, "Simple Computers
-    101 License Portal") manages licenses across all products, and its own
-    "Move to a new PC" button is the auth'd equivalent.
+    101 Licensing System") is product-agnostic and manages licenses across all
+    products, and its own "Move to a new PC" button is the auth'd equivalent.
+    Products are registered in `cloud/hosting/products.js` (one catalog read by
+    both the storefront and the admin dropdown; add a product = one entry).
   - **Honest scope**: no client-side scheme is uncrackable; signed +
     machine-locked keys deter casual sharing, not a determined cracker.
     Online mode adds real revocation + machine control on top.

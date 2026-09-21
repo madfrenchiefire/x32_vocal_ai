@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Simple Computers 101 — License Portal</title>
+  <title>Simple Computers 101 Licensing System</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -53,7 +53,7 @@
 </head>
 <body>
   <header>
-    <h1>Simple Computers 101 — License Portal</h1>
+    <h1>Simple Computers 101 Licensing System</h1>
     <div>
       <span id="who" class="muted"></span>
       <button id="signout" class="secondary hidden">Sign out</button>
@@ -69,9 +69,9 @@
         "My licenses". (It usually lands within a few seconds.)</p>
     </section>
 
-    <!-- Storefront (always visible) -->
-    <section class="card" id="store-card">
-      <h2>Buy X32 SonicSniper</h2>
+    <!-- Storefront (shown only when a product is for sale online) -->
+    <section class="card hidden" id="store-card">
+      <h2>Buy a license</h2>
       <div id="store-products"></div>
       <p class="status" id="store-status"></p>
       <p class="muted" style="font-size: 0.85rem;">
@@ -127,10 +127,8 @@
       <div class="row">
         <div>
           <label>Product</label>
-          <!-- Add every app you sell here (value = the app's product_id). -->
-          <select id="a-product">
-            <option value="x32-sonicsniper">X32 SonicSniper</option>
-          </select>
+          <!-- Populated from products.js (edit that file to add a product). -->
+          <select id="a-product"></select>
         </div>
         <div><label>Customer email</label><input type="email" id="a-email"></div>
         <div><label>Name</label><input type="text" id="a-name"></div>

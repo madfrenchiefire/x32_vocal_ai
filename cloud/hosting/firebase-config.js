@@ -15,16 +15,5 @@ export const functionsRegion = "us-central1";
 // Base URL for the HTTP functions (create_checkout_session lives here).
 export const functionsBaseUrl = "https://us-central1-x32-sonicsniper.cloudfunctions.net";
 
-// Products shown in the storefront. Prices are display-only labels; the real
-// charge comes from the Stripe price ids in cloud/functions/pricing.py.
-export const storeProducts = [
-  {
-    productId: "x32-sonicsniper",
-    name: "X32 SonicSniper",
-    blurb: "Real-time microphone feedback suppression for the Behringer X32.",
-    plans: [
-      { plan: "monthly", label: "Monthly", price: "$—/mo" },
-      { plan: "lifetime", label: "Lifetime", price: "$—" },
-    ],
-  },
-];
+// The product catalog moved to ./products.js -- register every product you
+// license there (one place, read by both the storefront and the admin panel).
